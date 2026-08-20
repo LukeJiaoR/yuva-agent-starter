@@ -1,24 +1,49 @@
-name: CI
+name: CI Quality Gate
 
 on:
   push:
-    branches: [ main, dev ]
+    branches: [main, dev]
   pull_request:
-    branches: [ main, dev ]
+    branches: [main, dev]
 
 jobs:
-  test:
+  verify-and-test:
+    name: Verification & Integration Tests
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ziwei
+          POSTGRES_PASSWORD: changeme_in_production
+          POSTGRES_DB: ziwei
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
-      - uses: actions/checkout@v4
-      - name: Use Node.js 22.x
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20.x
         uses: actions/setup-node@v4
         with:
-          node-version: 22.x
+          node-version: 20
           cache: 'npm'
-      - name: Install dependencies
+
+      - name: Install Dependencies
         run: npm ci
-      - name: Verify Package Boundaries
+
+      - name: Check Core Package Boundaries
         run: npm run verify:boundaries
-      - name: Run Test Suite
+
+      - name: Run Unit & Live PostgreSQL Contract Tests
+        env:
+          TEST_DATABASE_URL: postgresql://ziwei:changeme_in_production@localhost:5432/ziwei
+          NODE_ENV: test
         run: npm test

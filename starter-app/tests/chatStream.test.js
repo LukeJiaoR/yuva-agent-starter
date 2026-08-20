@@ -33,7 +33,8 @@ function mockResponse() {
 
 describe('Chat Stream Route & Agent Runtime Integration (Contract Verification)', () => {
   const USER_ID = '11111111-1111-4111-8111-111111111111';
-  const GRANT_ID = '22222222-2222-4222-8222-222222222222';
+  const OTHER_USER_ID = '22222222-2222-4222-8222-222222222222';
+  const GRANT_ID = '33333333-3333-4333-8333-333333333333';
   const REQUEST_ID = 'req-contract-test-1';
 
   function createMockDb({ availableCredits = 10 } = {}) {
@@ -41,14 +42,22 @@ describe('Chat Stream Route & Agent Runtime Integration (Contract Verification)'
       account: { user_id: USER_ID, available_credits: availableCredits, reserved_credits: 0, credit_debt: 0, version: 1 },
       grants: [{ id: GRANT_ID, user_id: USER_ID, credit_type: 'purchased', status: 'active', remaining_credits: availableCredits, reserved_credits: 0 }],
       requests: new Map(),
+      conversations: new Map(),
       messages: [],
     };
 
     let nextUsageId = 1;
     const query = vi.fn(async (sql, params = []) => {
       const text = String(sql);
-      if (text.includes('SELECT role, content FROM messages')) {
-        return { rows: state.messages };
+      if (text.includes('FROM messages m') && text.includes('JOIN conversations c')) {
+        // Enforces tenant isolation: conversation_id = $1 AND c.user_id = $2
+        const convId = params[0];
+        const userId = params[1];
+        const conv = state.conversations.get(convId);
+        if (!conv || conv.user_id !== userId) {
+          return { rows: [] };
+        }
+        return { rows: state.messages.filter((m) => m.conversation_id === convId) };
       }
       if (text.includes('INSERT INTO credit_accounts')) return { rows: [] };
       if (text.includes('SELECT * FROM credit_accounts WHERE')) return { rows: [state.account] };
@@ -88,12 +97,11 @@ describe('Chat Stream Route & Agent Runtime Integration (Contract Verification)'
       if (text.includes('FROM credit_usage_allocations a')) {
         return { rows: [{ id: 'alloc-1', usage_request_id: params[0], grant_id: GRANT_ID, credit_type: 'purchased', reserved_credits: 2, settled_credits: 0 }] };
       }
-      if (text.includes('UPDATE credit_usage_requests SET status = \'settled\'') || text.includes('status = $2, settled_credits = $3')) {
+      if (text.includes('UPDATE credit_usage_requests') && (text.includes('status = \'settled\'') || text.includes('assistant_text = $2'))) {
         const req = state.requests.get(params[0]);
         if (req) {
           req.status = 'settled';
-          req.settled_credits = params[2];
-          req.assistant_text = params[4];
+          if (params[1]) req.assistant_text = params[1];
         }
         return { rows: req ? [req] : [] };
       }
@@ -102,9 +110,13 @@ describe('Chat Stream Route & Agent Runtime Integration (Contract Verification)'
         if (req) req.status = 'released';
         return { rows: req ? [req] : [] };
       }
-      if (text.includes('INSERT INTO conversations')) return { rows: [] };
+      if (text.includes('INSERT INTO conversations')) {
+        state.conversations.set(params[0], { id: params[0], user_id: params[1] });
+        return { rows: [] };
+      }
       if (text.includes('INSERT INTO messages')) {
-        state.messages.push({ role: 'user', content: params[1] }, { role: 'assistant', content: params[2] });
+        state.messages.push({ conversation_id: params[0], role: 'user', content: params[1] });
+        state.messages.push({ conversation_id: params[0], role: 'assistant', content: params[2] });
         return { rows: [] };
       }
       return { rows: [] };
@@ -163,6 +175,73 @@ describe('Chat Stream Route & Agent Runtime Integration (Contract Verification)'
     expect(res.end).toHaveBeenCalled();
   });
 
+  it('enforces strict tenant isolation on conversation history', async () => {
+    const mockDb = createMockDb({ availableCredits: 10 });
+    const CONV_ID = 'conv-private-other-user';
+    // Conversation owned by OTHER_USER_ID
+    mockDb.state.conversations.set(CONV_ID, { id: CONV_ID, user_id: OTHER_USER_ID });
+    mockDb.state.messages.push({
+      conversation_id: CONV_ID,
+      role: 'user',
+      content: 'Confidential secret from other user',
+    });
+
+    let receivedPrompts = null;
+    const callAIStream = vi.fn(async (options) => {
+      receivedPrompts = options;
+      await options.onText('Response');
+      return { finishReason: 'stop' };
+    });
+
+    const app = createServer({ db: mockDb, callAIStream });
+    const handler = getRouteHandler(app, 'POST', '/api/chat/stream');
+    const res = mockResponse();
+
+    // USER_ID requests using CONV_ID
+    await handler(
+      {
+        user: { id: USER_ID, email: 'user@example.com' },
+        body: {
+          conversationId: CONV_ID,
+          question: 'Hello',
+          requestId: 'req-tenant-check',
+        },
+      },
+      res,
+      vi.fn(),
+    );
+
+    // Assert that Other User's confidential history was NOT injected into USER_ID's prompt
+    const promptContent = JSON.stringify(receivedPrompts.messages);
+    expect(promptContent).not.toContain('Confidential secret from other user');
+  });
+
+  it('rejects unauthenticated requests with HTTP 401 when ALLOW_DEV_GUEST is false or in production', async () => {
+    const mockDb = createMockDb({ availableCredits: 10 });
+    const app = createServer({
+      db: mockDb,
+      config: { env: { NODE_ENV: 'production', ALLOW_DEV_GUEST: 'false' } },
+    });
+    const handler = getRouteHandler(app, 'POST', '/api/chat/stream');
+    const res = mockResponse();
+
+    await handler(
+      {
+        user: null, // No authenticated user
+        body: { question: 'Anonymous attempt', requestId: 'req-anon' },
+      },
+      res,
+      vi.fn(),
+    );
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: 'unauthorized',
+      }),
+    );
+  });
+
   it('prevents concurrent SSE cross-talk (Request-scoped isolation test)', async () => {
     const mockDb = createMockDb({ availableCredits: 20 });
     const callAIStream = vi.fn(async ({ userPrompt, messages, onText }) => {
@@ -202,11 +281,9 @@ describe('Chat Stream Route & Agent Runtime Integration (Contract Verification)'
     const streamA = resA.events.join('');
     const streamB = resB.events.join('');
 
-    // Request A must ONLY contain Question A output
     expect(streamA).toContain('Response for [Question A]');
     expect(streamA).not.toContain('Response for [Question B]');
 
-    // Request B must ONLY contain Question B output
     expect(streamB).toContain('Response for [Question B]');
     expect(streamB).not.toContain('Response for [Question A]');
   });
@@ -236,7 +313,6 @@ describe('Chat Stream Route & Agent Runtime Integration (Contract Verification)'
 
   it('replays previously settled request via SSE with 0 provider calls', async () => {
     const mockDb = createMockDb({ availableCredits: 10 });
-    // Pre-populate settled request
     mockDb.state.requests.set('usage-replay-1', {
       id: 'usage-replay-1',
       user_id: USER_ID,

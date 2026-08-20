@@ -26,7 +26,7 @@ export function createChatStreamRoutes({
 } = {}) {
   const router = express.Router();
 
-  // 1. Domain Port
+  // 1. Domain Port (Ensures deterministic facts & tenant-isolated conversation history)
   const domainPort = {
     async prepare({ request, user, db: activeDb }) {
       const input = request || {};
@@ -34,19 +34,25 @@ export function createChatStreamRoutes({
       const clientRequestId = input.requestId || input.clientRequestId || input.request_id || crypto.randomUUID();
       const question = input.question || 'Hello!';
 
-      // Load conversation history from database
+      // Load conversation history from database with strict user ownership enforcement
       let history = [];
       try {
         const histRes = await activeDb.query(
-          'SELECT role, content FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC LIMIT 20',
-          [conversationId],
+          `SELECT m.role, m.content
+             FROM messages m
+             JOIN conversations c ON c.id = m.conversation_id
+            WHERE m.conversation_id = $1 AND c.user_id = $2
+            ORDER BY m.created_at DESC
+            LIMIT 20`,
+          [conversationId, user.id],
         );
-        history = histRes.rows || [];
+        // Reverse recent 20 messages into chronological order
+        history = (histRes.rows || []).slice().reverse();
       } catch {
         history = [];
       }
 
-      // Compute deterministic domain facts
+      // Compute deterministic domain facts and snapshot
       const facts = await adapter.computeFacts(input);
       const snapshot = adapter.createSnapshot(facts);
       const domainContext = adapter.buildContext(facts, history, question);
@@ -107,24 +113,39 @@ export function createChatStreamRoutes({
     },
   };
 
-  // 3. Prompt Port (Injects grounded facts and historical turns into messages array)
+  // 3. Prompt Port (Authoritative Messages: built strictly from allocated context units)
   const promptPort = {
-    async composePrompt({ request, context }) {
+    async composePrompt({ context }) {
       const systemPrompt = DomainPrompts.formatSystemPrompt(context?.contextPayload || {});
-      const messages = [
-        ...(request.history || []).map((h) => ({ role: h.role, content: h.content })),
-        { role: 'user', content: request.question },
-      ];
+      const messageUnits = context?.messageUnits || [];
+
+      const messages = messageUnits.map((unit) => {
+        if (unit.key === 'user.question') {
+          return { role: 'user', content: unit.text };
+        }
+        const colonIndex = unit.text.indexOf(': ');
+        if (colonIndex > 0) {
+          const role = unit.text.slice(0, colonIndex);
+          const content = unit.text.slice(colonIndex + 2);
+          if (role === 'user' || role === 'assistant' || role === 'system') {
+            return { role, content };
+          }
+        }
+        return { role: 'user', content: unit.text };
+      });
+
+      const userUnit = messageUnits.find((u) => u.key === 'user.question');
+      const userPrompt = userUnit ? userUnit.text : '';
 
       return {
         systemPrompt,
         messages,
-        userPrompt: request.question,
+        userPrompt,
       };
     },
   };
 
-  // 4. Validation Port (Using real createDelivery buffer & safety check)
+  // 4. Validation Port (Buffered Delivery Hook & Validation Extension Point)
   const validationPort = {
     async createDelivery({ onCommit }) {
       let buffer = '';
@@ -134,11 +155,12 @@ export function createChatStreamRoutes({
           onCommit(delta);
         },
         async flush() {
-          if (!buffer.trim()) {
+          const text = buffer.trim();
+          if (!text) {
             throw new Error('Assistant generated an empty response');
           }
           return {
-            visibleText: buffer,
+            visibleText: text,
             valid: true,
           };
         },
@@ -146,7 +168,7 @@ export function createChatStreamRoutes({
     },
   };
 
-  // 5. Billing Port (Using real @yuva/billing-core with database transactions & locks)
+  // 5. Billing Port (Using real @yuva/billing-core with full two-phase ledger persistence)
   const billingPort = {
     async getRequest({ request, user, db: activeDb }) {
       const clientRequestId = request.requestId || request.clientRequestId || request.request_id;
@@ -242,23 +264,44 @@ export function createChatStreamRoutes({
         userId: user.id,
         requestId: reservation?.reservationId || reservation?.request?.id,
         creditsUsed,
-        billableTokens,
-        assistantText: textToSave,
+        persistResult: async (client, usageRequest) => {
+          await client.query(
+            `UPDATE credit_usage_requests
+                SET assistant_text = $2,
+                    billable_tokens = $3,
+                    settled_at = NOW(),
+                    updated_at = NOW()
+              WHERE id = $1`,
+            [usageRequest.id, textToSave, billableTokens],
+          );
+          return { id: usageRequest.id };
+        },
+        metadata: {
+          conversation_id: request.conversationId,
+        },
       });
 
-      // Persist user and assistant messages for conversation multi-turn history
+      // Persist conversation & messages with strict tenant ownership
       if (request?.conversationId) {
         await activeDb.query(
           `INSERT INTO conversations (id, user_id, domain_key, updated_at)
            VALUES ($1, $2, $3, NOW())
-           ON CONFLICT (id) DO UPDATE SET updated_at = NOW()`,
+           ON CONFLICT (id) DO UPDATE
+              SET updated_at = NOW()
+            WHERE conversations.user_id = $2`,
           [request.conversationId, user.id, adapter.domainKey],
         ).catch(() => {});
 
         await activeDb.query(
           `INSERT INTO messages (conversation_id, role, content, created_at)
-           VALUES ($1, 'user', $2, NOW()), ($1, 'assistant', $3, NOW())`,
-          [request.conversationId, request.question, textToSave],
+           SELECT c.id, 'user', $2, NOW()
+             FROM conversations c
+            WHERE c.id = $1 AND c.user_id = $4
+            UNION ALL
+           SELECT c.id, 'assistant', $3, NOW()
+             FROM conversations c
+            WHERE c.id = $1 AND c.user_id = $4`,
+          [request.conversationId, request.question, textToSave, user.id],
         ).catch(() => {});
       }
 
@@ -280,7 +323,7 @@ export function createChatStreamRoutes({
     },
   };
 
-  // 6. Stream Port (Completely Request-Scoped: No Shared Closure Variables!)
+  // 6. Stream Port (Completely Request-Scoped: No Shared State)
   const streamPort = {
     createEmitter({ req, res, requestId, pipelineRunId }) {
       if (!res) return null;
@@ -330,7 +373,7 @@ export function createChatStreamRoutes({
         systemPrompt: options.systemPrompt,
         messages: options.messages || [{ role: 'user', content: options.userPrompt }],
         onText: options.onText,
-        abortSignal: options.signal,
+        signal: options.signal || options.abortSignal,
       });
     },
 
@@ -373,11 +416,25 @@ export function createChatStreamRoutes({
   });
 
   router.post('/api/chat/stream', async (req, res, next) => {
+    let emitter = null;
     try {
-      const user = req.user || {
-        id: req.headers['x-user-id'] || '00000000-0000-0000-0000-000000000001',
-        email: req.headers['x-user-email'] || 'guest@example.com',
-      };
+      const isProduction = (env.NODE_ENV || process.env.NODE_ENV) === 'production';
+      const allowDevGuest = String(env.ALLOW_DEV_GUEST || '').toLowerCase() === 'true';
+
+      let user = req.user;
+      if (!user) {
+        if (isProduction || !allowDevGuest) {
+          return res.status(401).json({
+            error: 'unauthorized',
+            message: 'Authentication required. Missing or invalid authentication token.',
+          });
+        }
+        user = {
+          id: '00000000-0000-0000-0000-000000000001',
+          email: 'dev-guest@example.local',
+          display_name: 'Dev Guest',
+        };
+      }
 
       const result = await runtime({
         request: req.body,
@@ -401,6 +458,16 @@ export function createChatStreamRoutes({
           message: err.message || 'Internal Server Error',
         });
       }
+      // If SSE headers have already been sent, emit terminal error event
+      try {
+        writeSseEvent(res, {
+          event: 'error',
+          data: {
+            error: err.code || 'runtime_error',
+            message: err.message || 'Streaming terminated unexpectedly',
+          },
+        });
+      } catch {}
       res.end();
     }
   });
