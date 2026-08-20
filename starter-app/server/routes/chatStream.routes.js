@@ -256,9 +256,26 @@ export function createChatStreamRoutes({
             balance: result.balance,
           };
         }
+        if (status === 'settled') {
+          return {
+            isExisting: true,
+            replayed: true,
+            request: result.request,
+            balance: result.balance,
+          };
+        }
         return {
-          isExisting: true,
-          replayed: true,
+          rejected: true,
+          status: 409,
+          code: `request_${status}`,
+          error: `Request has terminal status ${status} and cannot be replayed`,
+          body: {
+            error: `request_${status}`,
+            code: `request_${status}`,
+            message: `Previous request has status ${status} and cannot be replayed.`,
+            request_id: result.request.client_request_id,
+            status,
+          },
           request: result.request,
           balance: result.balance,
         };

@@ -210,7 +210,7 @@ export function createAgentRuntime(runtimeDefaults = {}) {
               balance: reservation.balance,
             };
           }
-          if (reservation.replayed || reqStatus === "settled") {
+          if (reqStatus === "settled") {
             if (typeof streamPort.replayExisting === "function") {
               const replayedResult = await streamPort.replayExisting({
                 request,
@@ -227,17 +227,35 @@ export function createAgentRuntime(runtimeDefaults = {}) {
               });
               if (replayedResult) return replayedResult;
             }
+            return {
+              handled: true,
+              streamed: false,
+              statusCode: 200,
+              status: 200,
+              request: reservation.request,
+              balance: reservation.balance,
+              body: reservation.body || reservation.request,
+              replayed: true,
+            };
           }
-          return {
-            handled: true,
-            streamed: false,
-            statusCode: 200,
-            status: 200,
-            request: reservation.request,
-            balance: reservation.balance,
-            body: reservation.body || reservation.request,
-            replayed: true,
-          };
+          if (reqStatus === "released" || reqStatus === "refunded" || reqStatus === "reconciliation_required") {
+            return {
+              handled: true,
+              streamed: false,
+              statusCode: reservation.status || reservation.statusCode || 409,
+              status: reservation.status || reservation.statusCode || 409,
+              error: reservation.error || `request_${reqStatus}`,
+              code: reservation.code || `request_${reqStatus}`,
+              body: reservation.body || {
+                error: reservation.error || `request_${reqStatus}`,
+                code: reservation.code || `request_${reqStatus}`,
+                message: `Request status is ${reqStatus} and cannot be replayed.`,
+                request_id: canonicalRequest?.clientRequestId || canonicalRequest?.id,
+              },
+              request: reservation.request,
+              balance: reservation.balance,
+            };
+          }
         }
       }
 

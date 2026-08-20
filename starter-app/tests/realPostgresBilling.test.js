@@ -259,4 +259,92 @@ describe('Real PostgreSQL Billing & Auth Schema Integration Contract Test', () =
       await testPool.end();
     }
   });
+
+  it('allows retry on released requests under the same clientRequestId without duplicate row violation', async (ctx) => {
+    if (!isPostgresAvailable) {
+      ctx.skip();
+      return;
+    }
+
+    const testPool = new Pool({
+      connectionString: `${connectionString}${connectionString.includes('?') ? '&' : '?'}options=-csearch_path%3D${TEST_SCHEMA},public`,
+    });
+
+    try {
+      const RETRY_USER = '77777777-7777-4777-8777-777777777777';
+      const RETRY_REQ_ID = 'req-retry-same-id-1';
+
+      await testPool.query(
+        `INSERT INTO users (id, email, display_name)
+         VALUES ($1, 'retry-user@example.com', 'Retry User')`,
+        [RETRY_USER],
+      );
+
+      await grantCredits({
+        db: testPool,
+        userId: RETRY_USER,
+        credits: 10,
+        creditType: 'purchased',
+        idempotencyKey: `grant-retry-${Date.now()}`,
+      });
+
+      // 1. Initial attempt fails and releases credits
+      const res1 = await reserveFeatureCredits({
+        db: testPool,
+        userId: RETRY_USER,
+        featureKey: 'deep_reasoning',
+        clientRequestId: RETRY_REQ_ID,
+        credits: 2,
+      });
+      expect(res1.kind).toBe('reserved');
+
+      await releaseFeatureCredits({
+        db: testPool,
+        userId: RETRY_USER,
+        requestId: res1.request.id,
+        failureClass: 'network_timeout',
+      });
+
+      const balanceAfterRelease = await getCreditBalance({ db: testPool, userId: RETRY_USER });
+      expect(balanceAfterRelease.available).toBe(10);
+      expect(balanceAfterRelease.reserved).toBe(0);
+
+      // 2. Retry with exact same clientRequestId -> Re-activates released request
+      const res2 = await reserveFeatureCredits({
+        db: testPool,
+        userId: RETRY_USER,
+        featureKey: 'deep_reasoning',
+        clientRequestId: RETRY_REQ_ID,
+        credits: 2,
+        allowRetryOnReleased: true,
+      });
+
+      expect(res2.kind).toBe('reserved');
+      expect(res2.request.id).toBe(res1.request.id);
+      expect(res2.request.status).toBe('generating');
+      expect(res2.balance.available).toBe(8);
+      expect(res2.balance.reserved).toBe(2);
+
+      // 3. Settle retry
+      const settleRetry = await settleFeatureCredits({
+        db: testPool,
+        userId: RETRY_USER,
+        requestId: res2.request.id,
+        creditsUsed: 2,
+        persistResult: async (client, req) => {
+          await client.query(
+            `UPDATE credit_usage_requests SET assistant_text = $2 WHERE id = $1`,
+            [req.id, 'Retry succeeded with full text'],
+          );
+          return { id: req.id };
+        },
+      });
+
+      expect(settleRetry.request.status).toBe('settled');
+      expect(settleRetry.balance.available).toBe(8);
+      expect(settleRetry.balance.reserved).toBe(0);
+    } finally {
+      await testPool.end();
+    }
+  });
 });

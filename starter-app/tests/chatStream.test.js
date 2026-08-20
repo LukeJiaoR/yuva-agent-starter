@@ -438,4 +438,35 @@ describe('Chat Stream Route & Agent Runtime Integration (Contract Verification)'
     expect(fullStream).toContain('event: done\n');
     expect(res.end).toHaveBeenCalled();
   });
+
+  it('prohibits replaying released or refunded requests as settled responses', async () => {
+    const mockDb = createMockDb({ availableCredits: 10 });
+    const FAILED_ID = 'req-released-id';
+    mockDb.state.requests.set('usage-released-1', {
+      id: 'usage-released-1',
+      user_id: USER_ID,
+      client_request_id: FAILED_ID,
+      status: 'released',
+      reserved_credits: 0,
+      assistant_text: null,
+      conversation_id: 'conv-failed',
+    });
+
+    const callAIStream = vi.fn();
+    const app = createServer({ db: mockDb, callAIStream });
+    const handler = getRouteHandler(app, 'POST', '/api/chat/stream');
+    const res = mockResponse();
+
+    await handler(
+      {
+        user: { id: USER_ID },
+        body: { question: 'Retry failed request', requestId: FAILED_ID },
+      },
+      res,
+      vi.fn(),
+    );
+
+    const fullStream = res.events.join('');
+    expect(fullStream).not.toContain('replayed":true');
+  });
 });

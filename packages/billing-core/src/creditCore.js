@@ -452,6 +452,7 @@ export async function reserveFeatureCredits({
   chartId = null,
   pricingStrategy = "fixed",
   metadata = {},
+  allowRetryOnReleased = true,
 }) {
   const normalizedFeature = normalizeFeatureKey(featureKey);
   const reserveCredits = integer(credits);
@@ -469,36 +470,79 @@ export async function reserveFeatureCredits({
       featureKey: normalizedFeature,
       clientRequestId,
     });
+    let request = null;
+
     if (existing) {
-      return { kind: "existing", request: existing, balance: await readCreditBalance({ db: client, userId }) };
-    }
-    if (integer(account.credit_debt) > 0) {
-      return { kind: "debt", balance: await readCreditBalance({ db: client, userId }) };
-    }
-    if (integer(account.available_credits) < reserveCredits) {
-      return { kind: "insufficient", balance: await readCreditBalance({ db: client, userId }) };
+      if (existing.status === "released" && allowRetryOnReleased) {
+        if (integer(account.credit_debt) > 0) {
+          return { kind: "debt", balance: await readCreditBalance({ db: client, userId }) };
+        }
+        if (integer(account.available_credits) < reserveCredits) {
+          return { kind: "insufficient", balance: await readCreditBalance({ db: client, userId }) };
+        }
+        const { rows: [reactivatedRequest] } = await client.query(
+          `UPDATE credit_usage_requests
+              SET status = 'generating',
+                  reserved_credits = $2,
+                  settled_credits = 0,
+                  credits_released = 0,
+                  billable_tokens = 0,
+                  balance_before = $3,
+                  balance_after = NULL,
+                  result_id = NULL,
+                  assistant_text = NULL,
+                  failure_class = NULL,
+                  started_at = NOW(),
+                  completed_at = NULL,
+                  settled_at = NULL,
+                  updated_at = NOW(),
+                  metadata = metadata || $4::jsonb
+            WHERE id = $1
+            RETURNING *`,
+          [
+            existing.id,
+            reserveCredits,
+            integer(account.available_credits),
+            JSON.stringify(metadata || {}),
+          ],
+        );
+        await client.query("DELETE FROM credit_usage_allocations WHERE usage_request_id = $1", [existing.id]);
+        request = reactivatedRequest;
+      } else {
+        return { kind: "existing", request: existing, balance: await readCreditBalance({ db: client, userId }) };
+      }
     }
 
-    const idempotencyKey = `${normalizedFeature}:${clientRequestId}`;
-    const { rows: [request] } = await client.query(
-      `INSERT INTO credit_usage_requests (
-         user_id, feature_key, chart_id, client_request_id, idempotency_key,
-         pricing_strategy, status, reserved_credits, balance_before,
-         started_at, metadata
-       ) VALUES ($1,$2,$3,$4,$5,$6,'generating',$7,$8,NOW(),$9::jsonb)
-       RETURNING *`,
-      [
-        userId,
-        normalizedFeature,
-        chartId,
-        clientRequestId,
-        idempotencyKey,
-        pricingStrategy,
-        reserveCredits,
-        integer(account.available_credits),
-        JSON.stringify(metadata || {}),
-      ],
-    );
+    if (!request) {
+      if (integer(account.credit_debt) > 0) {
+        return { kind: "debt", balance: await readCreditBalance({ db: client, userId }) };
+      }
+      if (integer(account.available_credits) < reserveCredits) {
+        return { kind: "insufficient", balance: await readCreditBalance({ db: client, userId }) };
+      }
+
+      const idempotencyKey = `${normalizedFeature}:${clientRequestId}`;
+      const { rows: [insertedRequest] } = await client.query(
+        `INSERT INTO credit_usage_requests (
+           user_id, feature_key, chart_id, client_request_id, idempotency_key,
+           pricing_strategy, status, reserved_credits, balance_before,
+           started_at, metadata
+         ) VALUES ($1,$2,$3,$4,$5,$6,'generating',$7,$8,NOW(),$9::jsonb)
+         RETURNING *`,
+        [
+          userId,
+          normalizedFeature,
+          chartId,
+          clientRequestId,
+          idempotencyKey,
+          pricingStrategy,
+          reserveCredits,
+          integer(account.available_credits),
+          JSON.stringify(metadata || {}),
+        ],
+      );
+      request = insertedRequest;
+    }
     const { rows: grants } = await client.query(
       `SELECT * FROM credit_grants
         WHERE user_id = $1
@@ -559,7 +603,7 @@ export async function reserveFeatureCredits({
           available_credits: integer(account.available_credits) - cumulative,
           reserved_credits: integer(account.reserved_credits) + cumulative,
         },
-        idempotencyKey: `reserve:${request.id}:${allocation.grantId}`,
+        idempotencyKey: `reserve:${request.id}:${allocation.grantId}:${request.started_at ? new Date(request.started_at).getTime() : 1}`,
         sourceType: normalizedFeature,
         sourceId: clientRequestId,
         reason: `Reserve Credits for ${normalizedFeature}`,
