@@ -7,15 +7,16 @@ export const PricingCatalog = {
   features: {
     quick_analysis: {
       key: 'quick_analysis',
-      name: 'Quick Analysis',
-      credits: 1,
-      description: 'Single-turn deterministic analysis and summary',
+      name: 'Deterministic Domain Analysis Preview',
+      credits: 0,
+      is_free: true,
+      description: 'Free deterministic domain fact extraction & SHA-256 snapshot preview',
     },
     deep_reasoning: {
       key: 'deep_reasoning',
       name: 'Deep Reasoning Stream',
       credits: 2,
-      description: 'Multi-turn conversational agent with domain knowledge retrieval',
+      description: 'Multi-turn conversational streaming agent with grounded domain knowledge',
     },
   },
   starter_grant: {

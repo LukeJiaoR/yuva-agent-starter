@@ -188,11 +188,13 @@ export function createChatStreamRoutes({
             replayed: false,
             streamed: false,
             statusCode: 202,
+            status: 202,
             body: {
               request_id: existing.client_request_id,
               status: existing.status,
               message: 'Request is currently processing',
             },
+            request: existing,
           };
         }
         if (existing.status === 'settled') {
@@ -237,6 +239,23 @@ export function createChatStreamRoutes({
       }
 
       if (result.kind === 'existing') {
+        const status = result.request?.status;
+        if (status === 'generating' || status === 'reserved') {
+          return {
+            isExisting: true,
+            replayed: false,
+            streamed: false,
+            statusCode: 202,
+            status: 202,
+            body: {
+              request_id: result.request.client_request_id,
+              status: result.request.status,
+              message: 'Request is currently processing',
+            },
+            request: result.request,
+            balance: result.balance,
+          };
+        }
         return {
           isExisting: true,
           replayed: true,
@@ -323,7 +342,7 @@ export function createChatStreamRoutes({
     },
   };
 
-  // 6. Stream Port (Completely Request-Scoped: No Shared State)
+  // 6. Stream Port (Completely Request-Scoped with terminal error support)
   const streamPort = {
     createEmitter({ req, res, requestId, pipelineRunId }) {
       if (!res) return null;
@@ -350,6 +369,14 @@ export function createChatStreamRoutes({
       emitter?.emit?.('done', {
         delivery_status: 'delivered',
         stop_reason: 'complete',
+      });
+    },
+
+    emitError(emitter, error) {
+      emitter?.emit?.('error', {
+        code: error?.code || 'runtime_error',
+        message: error?.message || 'Streaming terminated unexpectedly',
+        retryable: error?.retryable ?? false,
       });
     },
 
@@ -416,7 +443,6 @@ export function createChatStreamRoutes({
   });
 
   router.post('/api/chat/stream', async (req, res, next) => {
-    let emitter = null;
     try {
       const isProduction = (env.NODE_ENV || process.env.NODE_ENV) === 'production';
       const allowDevGuest = String(env.ALLOW_DEV_GUEST || '').toLowerCase() === 'true';
@@ -458,7 +484,6 @@ export function createChatStreamRoutes({
           message: err.message || 'Internal Server Error',
         });
       }
-      // If SSE headers have already been sent, emit terminal error event
       try {
         writeSseEvent(res, {
           event: 'error',

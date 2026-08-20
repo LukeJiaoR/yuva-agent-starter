@@ -70,7 +70,8 @@ describe('Vertical AI Agent SaaS Starter Application', () => {
           subject: 'Legal Clause 42',
         }),
         pricing: expect.objectContaining({
-          credits: 1,
+          credits: 0,
+          is_free: true,
         }),
       }),
     );

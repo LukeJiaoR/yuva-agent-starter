@@ -8,7 +8,7 @@ Built on **Hexagonal Architecture (Ports & Adapters)**, this template provides b
 
 ## 🚀 Key Architectural Highlights
 
-- **Request-Scoped Agent Streaming (`@yuva/ai-engine`)**: Multi-provider streaming (OpenAI, Anthropic, DeepSeek, Ollama), dynamic context allocation, token metering, semantic validation delivery, and SSE terminal replay. Zero shared closure state across concurrent requests.
+- **Request-Scoped Agent Streaming (`@yuva/ai-engine`)**: Multi-provider streaming (OpenAI, Anthropic, DeepSeek, Ollama), dynamic context allocation, token metering, Buffered Delivery Hook & Validation Extension Point (createDelivery push/flush protocol), and SSE terminal replay. Zero shared closure state across concurrent requests.
 - **Two-Phase Credit Ledger (`@yuva/billing-core`)**: Atomic pre-reservation, completion settlement, and automatic error release with PostgreSQL row locks (`FOR UPDATE`).
 - **Dynamic Context Planner (`@yuva/context-engine`)**: Priority-based token budgeting (`allocateContextBudget`) across system facts, user queries, and historical conversation turns.
 - **Enterprise Auth & Security (`@yuva/auth-core`)**: Clerk JWT verification, signed session tokens, rate limiting, and response payload redaction.

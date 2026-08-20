@@ -101,21 +101,13 @@ export function createAgentRuntime(runtimeDefaults = {}) {
           };
         }
         if (existing?.isExisting || existing?.replayed) {
-          if (typeof streamPort.replayExisting === "function") {
-            const replayedResult = await streamPort.replayExisting({
-              request,
-              canonicalRequest: canonicalRequest || request,
-              existing: existing.request || existing,
-              balance: existing.balance,
-              req,
-              res,
-              user,
-              db,
-              env,
-            });
-            if (replayedResult) return replayedResult;
-          }
-          if (existing?.status === "active" || existing?.statusCode === 202) {
+          const reqStatus = existing.request?.status || existing.status;
+          if (
+            reqStatus === "active"
+            || reqStatus === "generating"
+            || reqStatus === "reserved"
+            || existing.statusCode === 202
+          ) {
             return {
               handled: true,
               streamed: false,
@@ -124,6 +116,22 @@ export function createAgentRuntime(runtimeDefaults = {}) {
               body: existing.body || existing.request || existing,
               request: existing.request || existing,
             };
+          }
+          if (existing.replayed || reqStatus === "settled") {
+            if (typeof streamPort.replayExisting === "function") {
+              const replayedResult = await streamPort.replayExisting({
+                request,
+                canonicalRequest: canonicalRequest || request,
+                existing: existing.request || existing,
+                balance: existing.balance,
+                req,
+                res,
+                user,
+                db,
+                env,
+              });
+              if (replayedResult) return replayedResult;
+            }
           }
           return {
             handled: true,
@@ -185,23 +193,13 @@ export function createAgentRuntime(runtimeDefaults = {}) {
           };
         }
         if (reservation?.isExisting || reservation?.kind === "existing") {
-          if (typeof streamPort.replayExisting === "function") {
-            const replayedResult = await streamPort.replayExisting({
-              request,
-              canonicalRequest,
-              existing: reservation.request || reservation,
-              balance: reservation.balance,
-              createdConversation: canonicalRequest?.createdConversation,
-              conversationId: canonicalRequest?.conversationId,
-              req,
-              res,
-              user,
-              db,
-              env,
-            });
-            if (replayedResult) return replayedResult;
-          }
-          if (reservation?.status === "active" || reservation?.statusCode === 202) {
+          const reqStatus = reservation.request?.status || reservation.status;
+          if (
+            reqStatus === "active"
+            || reqStatus === "generating"
+            || reqStatus === "reserved"
+            || reservation.statusCode === 202
+          ) {
             return {
               handled: true,
               streamed: false,
@@ -209,7 +207,26 @@ export function createAgentRuntime(runtimeDefaults = {}) {
               status: 202,
               body: reservation.body || reservation.request || reservation,
               request: reservation.request || reservation,
+              balance: reservation.balance,
             };
+          }
+          if (reservation.replayed || reqStatus === "settled") {
+            if (typeof streamPort.replayExisting === "function") {
+              const replayedResult = await streamPort.replayExisting({
+                request,
+                canonicalRequest,
+                existing: reservation.request || reservation,
+                balance: reservation.balance,
+                createdConversation: canonicalRequest?.createdConversation,
+                conversationId: canonicalRequest?.conversationId,
+                req,
+                res,
+                user,
+                db,
+                env,
+              });
+              if (replayedResult) return replayedResult;
+            }
           }
           return {
             handled: true,

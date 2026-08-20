@@ -50,7 +50,6 @@ describe('Chat Stream Route & Agent Runtime Integration (Contract Verification)'
     const query = vi.fn(async (sql, params = []) => {
       const text = String(sql);
       if (text.includes('FROM messages m') && text.includes('JOIN conversations c')) {
-        // Enforces tenant isolation: conversation_id = $1 AND c.user_id = $2
         const convId = params[0];
         const userId = params[1];
         const conv = state.conversations.get(convId);
@@ -175,10 +174,106 @@ describe('Chat Stream Route & Agent Runtime Integration (Contract Verification)'
     expect(res.end).toHaveBeenCalled();
   });
 
+  it('returns HTTP 202 for in-flight duplicate requests (no replay), and replays only after settlement', async () => {
+    const mockDb = createMockDb({ availableCredits: 10 });
+    const INFLIGHT_ID = 'req-inflight-test';
+
+    // Step 1: Pre-populate an in-flight request with status = 'generating'
+    mockDb.state.requests.set('usage-inflight-1', {
+      id: 'usage-inflight-1',
+      user_id: USER_ID,
+      client_request_id: INFLIGHT_ID,
+      status: 'generating',
+      reserved_credits: 2,
+      assistant_text: null,
+      conversation_id: 'conv-inflight',
+    });
+
+    const callAIStream = vi.fn();
+    const app = createServer({ db: mockDb, callAIStream });
+    const handler = getRouteHandler(app, 'POST', '/api/chat/stream');
+
+    // Step 2: Duplicate request arrives while generating
+    const resB = mockResponse();
+    await handler(
+      {
+        user: { id: USER_ID },
+        body: { question: 'Duplicate question', requestId: INFLIGHT_ID },
+      },
+      resB,
+      vi.fn(),
+    );
+
+    // Must return HTTP 202 JSON, zero provider calls, zero SSE stream events
+    expect(resB.status).toHaveBeenCalledWith(202);
+    expect(resB.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'generating',
+        request_id: INFLIGHT_ID,
+      }),
+    );
+    expect(callAIStream).not.toHaveBeenCalled();
+    expect(resB.events.length).toBe(0);
+
+    // Step 3: Request finishes and settles
+    const inflightReq = mockDb.state.requests.get('usage-inflight-1');
+    inflightReq.status = 'settled';
+    inflightReq.assistant_text = 'Authoritative completed response from Request A.';
+
+    // Step 4: Subsequent duplicate request arrives after settlement -> Replays via SSE
+    const resC = mockResponse();
+    await handler(
+      {
+        user: { id: USER_ID },
+        body: { question: 'Duplicate question', requestId: INFLIGHT_ID },
+      },
+      resC,
+      vi.fn(),
+    );
+
+    expect(callAIStream).not.toHaveBeenCalled();
+    expect(resC.setHeader).toHaveBeenCalledWith('Content-Type', 'text/event-stream; charset=utf-8');
+    const fullStream = resC.events.join('');
+    expect(fullStream).toContain('event: start\n');
+    expect(fullStream).toContain('event: text_delta\n');
+    expect(fullStream).toContain('Authoritative completed response from Request A.');
+    expect(fullStream).toContain('event: done\n');
+    expect(resC.end).toHaveBeenCalled();
+  });
+
+  it('emits SSE terminal error event when provider fails and does not emit done event', async () => {
+    const mockDb = createMockDb({ availableCredits: 10 });
+    const callAIStream = vi.fn(async () => {
+      const err = new Error('Provider model overloaded');
+      err.code = 'provider_overloaded';
+      throw err;
+    });
+
+    const app = createServer({ db: mockDb, callAIStream });
+    const handler = getRouteHandler(app, 'POST', '/api/chat/stream');
+    const res = mockResponse();
+
+    await handler(
+      {
+        user: { id: USER_ID },
+        body: { question: 'Query that will fail', requestId: 'req-fail-stream' },
+      },
+      res,
+      vi.fn(),
+    );
+
+    expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/event-stream; charset=utf-8');
+    const fullStream = res.events.join('');
+    expect(fullStream).toContain('event: start\n');
+    expect(fullStream).toContain('event: error\n');
+    expect(fullStream).toContain('provider_overloaded');
+    expect(fullStream).not.toContain('event: done\n');
+    expect(res.end).toHaveBeenCalled();
+  });
+
   it('enforces strict tenant isolation on conversation history', async () => {
     const mockDb = createMockDb({ availableCredits: 10 });
     const CONV_ID = 'conv-private-other-user';
-    // Conversation owned by OTHER_USER_ID
     mockDb.state.conversations.set(CONV_ID, { id: CONV_ID, user_id: OTHER_USER_ID });
     mockDb.state.messages.push({
       conversation_id: CONV_ID,
@@ -197,7 +292,6 @@ describe('Chat Stream Route & Agent Runtime Integration (Contract Verification)'
     const handler = getRouteHandler(app, 'POST', '/api/chat/stream');
     const res = mockResponse();
 
-    // USER_ID requests using CONV_ID
     await handler(
       {
         user: { id: USER_ID, email: 'user@example.com' },
@@ -211,7 +305,6 @@ describe('Chat Stream Route & Agent Runtime Integration (Contract Verification)'
       vi.fn(),
     );
 
-    // Assert that Other User's confidential history was NOT injected into USER_ID's prompt
     const promptContent = JSON.stringify(receivedPrompts.messages);
     expect(promptContent).not.toContain('Confidential secret from other user');
   });
@@ -227,7 +320,7 @@ describe('Chat Stream Route & Agent Runtime Integration (Contract Verification)'
 
     await handler(
       {
-        user: null, // No authenticated user
+        user: null,
         body: { question: 'Anonymous attempt', requestId: 'req-anon' },
       },
       res,
@@ -257,7 +350,6 @@ describe('Chat Stream Route & Agent Runtime Integration (Contract Verification)'
     const resA = mockResponse();
     const resB = mockResponse();
 
-    // Run Request A and Request B concurrently
     const promiseA = handler(
       {
         user: { id: USER_ID },
