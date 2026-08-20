@@ -1,6 +1,5 @@
 import express from 'express';
 import { PricingCatalog } from '../domain/pricing.config.js';
-import { DomainPrompts } from '../domain/prompts.js';
 
 export function createAnalyzeRoutes({ adapter } = {}) {
   const router = express.Router();
@@ -16,17 +15,13 @@ export function createAnalyzeRoutes({ adapter } = {}) {
       const facts = await adapter.computeFacts(input);
       const snapshot = adapter.createSnapshot(facts);
 
-      // 2. Build domain prompt context
-      const context = adapter.buildContext(facts, [], input.query);
-      const prompt = DomainPrompts.formatAnalysisPrompt(context);
-
+      // 2. Return the immutable facts snapshot and fingerprint without exposing internal prompt templates
       return res.json({
         success: true,
         fingerprint: snapshot.fingerprint,
         pricing: PricingCatalog.features.quick_analysis,
         facts: snapshot.facts,
         computed_at: snapshot.computed_at,
-        prepared_prompt: prompt,
       });
     } catch (err) {
       next(err);

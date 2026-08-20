@@ -54,10 +54,12 @@ export function createAgentRuntime(runtimeDefaults = {}) {
   return async function executeAgent(callOptions = {}) {
     const options = { ...runtimeDefaults, ...callOptions };
     const {
-    request,
-    user,
-    db,
-    env = process.env,
+      request,
+      user,
+      db,
+      req,
+      res,
+      env = process.env,
     logger = console,
     signal,
     abortReason = () => null,
@@ -65,15 +67,15 @@ export function createAgentRuntime(runtimeDefaults = {}) {
     onContextDiagnostics = () => {},
     classifyError = null,
     // Injected Ports
-    billingPort = {},
-    requestPort = {},
-    domainPort = {},
-    contextPort = {},
-    promptPort = {},
-    streamPort = {},
-    validationPort = {},
-    memoryPort = {},
-    telemetryPort = {},
+    billingPort = runtimeDefaults.billingPort || {},
+      requestPort = runtimeDefaults.requestPort || {},
+      domainPort = runtimeDefaults.domainPort || {},
+      contextPort = runtimeDefaults.contextPort || {},
+      promptPort = runtimeDefaults.promptPort || {},
+      streamPort = runtimeDefaults.streamPort || {},
+      validationPort = runtimeDefaults.validationPort || {},
+      memoryPort = runtimeDefaults.memoryPort || {},
+      telemetryPort = runtimeDefaults.telemetryPort || {},
     errorPort = runtimeDefaults.errorPort || {},
   } = options;
     let phase = "preflight";
@@ -105,6 +107,8 @@ export function createAgentRuntime(runtimeDefaults = {}) {
               canonicalRequest: canonicalRequest || request,
               existing: existing.request || existing,
               balance: existing.balance,
+              req,
+              res,
               user,
               db,
               env,
@@ -189,6 +193,8 @@ export function createAgentRuntime(runtimeDefaults = {}) {
               balance: reservation.balance,
               createdConversation: canonicalRequest?.createdConversation,
               conversationId: canonicalRequest?.conversationId,
+              req,
+              res,
               user,
               db,
               env,
@@ -223,6 +229,8 @@ export function createAgentRuntime(runtimeDefaults = {}) {
       // 4. Emitter initialization & lifecycle start
       if (typeof streamPort.createEmitter === "function") {
         emitter = streamPort.createEmitter({
+          req,
+          res,
           requestId: canonicalRequest?.clientRequestId || canonicalRequest?.request_id || canonicalRequest?.id || request?.clientRequestId || request?.request_id || request?.id,
           pipelineRunId: canonicalRequest?.pipelineRunId,
         });

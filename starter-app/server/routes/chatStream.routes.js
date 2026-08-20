@@ -6,8 +6,15 @@ import {
   writeSseEvent,
   setSseHeaders,
   streamProviderText,
+  countUnicodeTokens,
 } from '../../../packages/ai-engine/index.js';
-import { planContextBudget } from '../../../packages/context-engine/index.js';
+import { allocateContextBudget } from '../../../packages/context-engine/index.js';
+import {
+  reserveFeatureCredits,
+  settleFeatureCredits,
+  releaseFeatureCredits,
+  getCreditBalance,
+} from '../../../packages/billing-core/index.js';
 import { DomainPrompts } from '../domain/prompts.js';
 import { PricingCatalog } from '../domain/pricing.config.js';
 
@@ -19,102 +26,179 @@ export function createChatStreamRoutes({
 } = {}) {
   const router = express.Router();
 
-  // 1. Construct Domain Port
+  // 1. Domain Port
   const domainPort = {
-    async prepare({ request }) {
+    async prepare({ request, user, db: activeDb }) {
       const input = request || {};
+      const conversationId = input.conversationId || input.conversation_id || crypto.randomUUID();
+      const clientRequestId = input.requestId || input.clientRequestId || input.request_id || crypto.randomUUID();
+      const question = input.question || 'Hello!';
+
+      // Load conversation history from database
+      let history = [];
+      try {
+        const histRes = await activeDb.query(
+          'SELECT role, content FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC LIMIT 20',
+          [conversationId],
+        );
+        history = histRes.rows || [];
+      } catch {
+        history = [];
+      }
+
+      // Compute deterministic domain facts
       const facts = await adapter.computeFacts(input);
       const snapshot = adapter.createSnapshot(facts);
-      const context = adapter.buildContext(facts, [], input.question);
+      const domainContext = adapter.buildContext(facts, history, question);
 
       return {
         valid: true,
-        canonicalRequest: {
-          requestId: input.requestId || input.request_id || crypto.randomUUID(),
-          conversationId: input.conversationId || input.conversation_id || crypto.randomUUID(),
-          question: input.question || 'Hello!',
+        request: {
+          clientRequestId,
+          conversationId,
+          question,
           factsSnapshot: snapshot,
-          domainContext: context,
+          domainContext,
+          history,
         },
       };
     },
   };
 
-  // 2. Construct Context Port
+  // 2. Context Port (Using @yuva/context-engine allocateContextBudget)
   const contextPort = {
     async resolveContext({ request }) {
-      const budget = planContextBudget({
-        queryLength: (request.question || '').length,
-        hasDeepContext: Boolean(request.factsSnapshot),
+      const units = [
+        {
+          key: 'system.facts',
+          category: 'knowledge',
+          channel: 'system',
+          required: true,
+          text: JSON.stringify(request.factsSnapshot?.facts || {}),
+        },
+        {
+          key: 'user.question',
+          category: 'question',
+          channel: 'message',
+          required: true,
+          text: request.question,
+        },
+        ...(request.history || []).map((m, idx) => ({
+          key: `history.${idx}`,
+          category: 'history',
+          channel: 'message',
+          required: false,
+          text: `${m.role}: ${m.content}`,
+        })),
+      ];
+
+      const budgetResult = allocateContextBudget({
+        units,
+        budgetTokens: 6000,
+        tokenCounter: countUnicodeTokens,
       });
+
       return {
-        budget,
+        budget: budgetResult,
         contextPayload: request.domainContext,
+        messageUnits: budgetResult.messageUnits,
+        systemUnits: budgetResult.systemUnits,
       };
     },
   };
 
-  // 3. Construct Prompt Port
+  // 3. Prompt Port (Injects grounded facts and historical turns into messages array)
   const promptPort = {
     async composePrompt({ request, context }) {
+      const systemPrompt = DomainPrompts.formatSystemPrompt(context?.contextPayload || {});
+      const messages = [
+        ...(request.history || []).map((h) => ({ role: h.role, content: h.content })),
+        { role: 'user', content: request.question },
+      ];
+
       return {
-        systemPrompt: DomainPrompts.formatSystemPrompt(context?.contextPayload || {}),
+        systemPrompt,
+        messages,
         userPrompt: request.question,
       };
     },
   };
 
-  // 4. Construct Validation Port
+  // 4. Validation Port (Using real createDelivery buffer & safety check)
   const validationPort = {
-    async validate({ text }) {
-      if (!text || text.trim().length === 0) {
-        return { valid: false, reason: 'Empty response generated' };
-      }
-      return { valid: true };
+    async createDelivery({ onCommit }) {
+      let buffer = '';
+      return {
+        async push(delta) {
+          buffer += delta;
+          onCommit(delta);
+        },
+        async flush() {
+          if (!buffer.trim()) {
+            throw new Error('Assistant generated an empty response');
+          }
+          return {
+            visibleText: buffer,
+            valid: true,
+          };
+        },
+      };
     },
   };
 
-  // 5. Construct Billing Port
+  // 5. Billing Port (Using real @yuva/billing-core with database transactions & locks)
   const billingPort = {
-    async getRequest({ request, user }) {
-      const clientRequestId = request.requestId || request.request_id;
+    async getRequest({ request, user, db: activeDb }) {
+      const clientRequestId = request.requestId || request.clientRequestId || request.request_id;
       if (!clientRequestId) return null;
-      const res = await db.query(
-        'SELECT * FROM credit_usage_requests WHERE user_id = $1 AND client_request_id = $2',
-        [user.id, clientRequestId],
-      ).catch(() => ({ rows: [] }));
-      const existing = res.rows[0];
-      if (!existing) return null;
 
-      if (existing.status === 'generating') {
-        return {
-          isExisting: true,
-          replayed: false,
-          streamed: false,
-          statusCode: 202,
-          body: {
-            request_id: existing.client_request_id,
-            status: existing.status,
-            message: 'Request is already being processed.',
-          },
-        };
+      try {
+        const res = await activeDb.query(
+          'SELECT * FROM credit_usage_requests WHERE user_id = $1 AND client_request_id = $2',
+          [user.id, clientRequestId],
+        );
+        const existing = res.rows[0];
+        if (!existing) return null;
+
+        if (existing.status === 'generating' || existing.status === 'reserved') {
+          return {
+            isExisting: true,
+            replayed: false,
+            streamed: false,
+            statusCode: 202,
+            body: {
+              request_id: existing.client_request_id,
+              status: existing.status,
+              message: 'Request is currently processing',
+            },
+          };
+        }
+        if (existing.status === 'settled') {
+          return {
+            isExisting: true,
+            replayed: true,
+            request: existing,
+          };
+        }
+      } catch {
+        return null;
       }
-      return {
-        isExisting: true,
-        replayed: true,
-        request: existing,
-      };
+      return null;
     },
 
-    async reserve({ request, user }) {
+    async reserve({ request, user, db: activeDb }) {
       const requiredCredits = PricingCatalog.features.deep_reasoning.credits;
-      const res = await db.query(
-        'SELECT available, reserved, debt FROM credit_balances WHERE user_id = $1',
-        [user.id],
-      ).catch(() => ({ rows: [{ available: 10, reserved: 0, debt: 0 }] }));
-      const balance = res.rows[0] || { available: 10, reserved: 0, debt: 0 };
+      const featureKey = PricingCatalog.features.deep_reasoning.key;
 
-      if (balance.available < requiredCredits) {
+      const result = await reserveFeatureCredits({
+        db: activeDb,
+        userId: user.id,
+        featureKey,
+        clientRequestId: request.clientRequestId,
+        credits: requiredCredits,
+      });
+
+      if (result.kind === 'insufficient' || result.kind === 'debt') {
         return {
           rejected: true,
           status: 402,
@@ -122,59 +206,97 @@ export function createChatStreamRoutes({
           error: 'Insufficient credits to start stream',
           body: {
             error: 'insufficient_credits',
-            required: requiredCredits,
-            available: balance.available,
+            code: 'insufficient_credits',
+            required_credits: requiredCredits,
+            available_credits: result.balance?.available ?? 0,
           },
+          balance: result.balance,
+        };
+      }
+
+      if (result.kind === 'existing') {
+        return {
+          isExisting: true,
+          replayed: true,
+          request: result.request,
+          balance: result.balance,
         };
       }
 
       return {
         kind: 'reserved',
         reservedCredits: requiredCredits,
-        balance: {
-          available: balance.available - requiredCredits,
-          reserved: balance.reserved + requiredCredits,
-          debt: balance.debt,
-        },
+        reservationId: result.request?.id,
+        request: result.request,
+        balance: result.balance,
       };
     },
 
-    async settle({ request, user, metered }) {
-      await db.query(
-        `INSERT INTO credit_usage_requests (user_id, client_request_id, status, settled_credits, billable_tokens, assistant_text)
-         VALUES ($1, $2, 'settled', $3, $4, $5)
-         ON CONFLICT (user_id, client_request_id) DO UPDATE
-         SET status = 'settled', settled_credits = $3, billable_tokens = $4, assistant_text = $5, settled_at = NOW()`,
-        [user.id, request.requestId, metered?.creditsUsed || 1, metered?.billableTokens || 0, metered?.assistantText || ''],
-      ).catch(() => {});
-      return { status: 'settled' };
+    async settle({ request, reservation, user, db: activeDb, providerResult, output, rawOutput }) {
+      const textToSave = output || rawOutput || '';
+      const billableTokens = providerResult?.billableTokens || countUnicodeTokens(textToSave);
+      const creditsUsed = reservation?.reservedCredits || PricingCatalog.features.deep_reasoning.credits;
+
+      await settleFeatureCredits({
+        db: activeDb,
+        userId: user.id,
+        requestId: reservation?.reservationId || reservation?.request?.id,
+        creditsUsed,
+        billableTokens,
+        assistantText: textToSave,
+      });
+
+      // Persist user and assistant messages for conversation multi-turn history
+      if (request?.conversationId) {
+        await activeDb.query(
+          `INSERT INTO conversations (id, user_id, domain_key, updated_at)
+           VALUES ($1, $2, $3, NOW())
+           ON CONFLICT (id) DO UPDATE SET updated_at = NOW()`,
+          [request.conversationId, user.id, adapter.domainKey],
+        ).catch(() => {});
+
+        await activeDb.query(
+          `INSERT INTO messages (conversation_id, role, content, created_at)
+           VALUES ($1, 'user', $2, NOW()), ($1, 'assistant', $3, NOW())`,
+          [request.conversationId, request.question, textToSave],
+        ).catch(() => {});
+      }
+
+      return {
+        status: 'settled',
+        creditsUsed,
+        billableTokens,
+      };
     },
 
-    async release({ request, user, failureClass }) {
-      await db.query(
-        `UPDATE credit_usage_requests SET status = 'released', failure_class = $3
-         WHERE user_id = $1 AND client_request_id = $2`,
-        [user.id, request.requestId, failureClass || 'unknown'],
-      ).catch(() => {});
+    async release({ reservation, user, db: activeDb, failureClass }) {
+      await releaseFeatureCredits({
+        db: activeDb,
+        userId: user.id,
+        requestId: reservation?.reservationId || reservation?.request?.id,
+        failureClass: failureClass || 'unknown_failure',
+      });
       return { status: 'released' };
     },
   };
 
-  // 6. Construct Stream Port (SSE Emitter & Replay)
-  let activeRes = null;
+  // 6. Stream Port (Completely Request-Scoped: No Shared Closure Variables!)
   const streamPort = {
-    createEmitter({ requestId, pipelineRunId }) {
-      if (!activeRes) return null;
-      setSseHeaders(activeRes);
+    createEmitter({ req, res, requestId, pipelineRunId }) {
+      if (!res) return null;
+      setSseHeaders(res);
       return createStreamEmitter({
         requestId,
         pipelineRunId,
-        write: (event) => writeSseEvent(activeRes, event),
+        write: (event) => writeSseEvent(res, event),
       });
     },
 
     emitStart(emitter, { request }) {
-      emitter?.emit?.('start', { conversation_id: request?.conversationId });
+      emitter?.emit?.('start', {
+        conversation_id: request?.conversationId,
+        pipeline_run_id: request?.pipelineRunId,
+      });
     },
 
     emitTextDelta(emitter, delta) {
@@ -182,8 +304,10 @@ export function createChatStreamRoutes({
     },
 
     emitDone(emitter) {
-      emitter?.emit?.('done', { delivery_status: 'delivered', stop_reason: 'complete' });
-      activeRes?.end?.();
+      emitter?.emit?.('done', {
+        delivery_status: 'delivered',
+        stop_reason: 'complete',
+      });
     },
 
     async streamProviderText(options = {}) {
@@ -191,32 +315,43 @@ export function createChatStreamRoutes({
         return callAIStream(options);
       }
 
+      const provider = env.AI_PROVIDER || 'openai';
+      const isAnthropic = provider === 'anthropic';
+      const apiKey = isAnthropic ? env.ANTHROPIC_API_KEY : env.OPENAI_API_KEY;
+      const model = isAnthropic
+        ? (env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022')
+        : (env.OPENAI_MODEL || 'gpt-4o');
+
       return streamProviderText({
-        apiKey: env.OPENAI_API_KEY,
+        provider,
+        apiKey,
         baseUrl: env.OPENAI_BASE_URL,
-        model: env.OPENAI_MODEL || 'gpt-4o',
+        model,
         systemPrompt: options.systemPrompt,
-        userPrompt: options.userPrompt,
+        messages: options.messages || [{ role: 'user', content: options.userPrompt }],
         onText: options.onText,
         abortSignal: options.signal,
       });
     },
 
     async replayExisting({ existing, res }) {
-      const targetRes = res || activeRes;
-      if (!targetRes) return { handled: true, streamed: false, statusCode: 200, body: existing };
-      setSseHeaders(targetRes);
+      if (!res) return { handled: true, streamed: false, statusCode: 200, body: existing };
+      setSseHeaders(res);
       const emitter = createStreamEmitter({
         requestId: existing.client_request_id,
-        write: (event) => writeSseEvent(targetRes, event),
+        write: (event) => writeSseEvent(res, event),
       });
 
       emitter.emit('start', { conversation_id: existing.conversation_id });
       if (existing.assistant_text) {
         emitter.emit('text_delta', { text: existing.assistant_text });
       }
-      emitter.emit('done', { delivery_status: 'delivered', stop_reason: 'complete', replayed: true });
-      targetRes.end?.();
+      emitter.emit('done', {
+        delivery_status: 'delivered',
+        stop_reason: 'complete',
+        replayed: true,
+      });
+      res.end();
 
       return {
         handled: true,
@@ -239,8 +374,11 @@ export function createChatStreamRoutes({
 
   router.post('/api/chat/stream', async (req, res, next) => {
     try {
-      activeRes = res;
-      const user = req.user || { id: '00000000-0000-0000-0000-000000000001', email: 'guest@example.com' };
+      const user = req.user || {
+        id: req.headers['x-user-id'] || '00000000-0000-0000-0000-000000000001',
+        email: req.headers['x-user-email'] || 'guest@example.com',
+      };
+
       const result = await runtime({
         request: req.body,
         user,
@@ -253,13 +391,17 @@ export function createChatStreamRoutes({
       if (!result.streamed && !res.headersSent) {
         return res.status(result.statusCode || result.status || 200).json(result.body || result);
       }
+      if (result.streamed && !res.writableEnded) {
+        res.end();
+      }
     } catch (err) {
       if (!res.headersSent) {
-        return res.status(500).json({ error: err.message || 'Internal Server Error' });
+        return res.status(err.status || 500).json({
+          error: err.code || 'runtime_error',
+          message: err.message || 'Internal Server Error',
+        });
       }
       res.end();
-    } finally {
-      activeRes = null;
     }
   });
 

@@ -4,9 +4,16 @@ const { Pool } = pg;
 export function createDatabasePool(config = {}) {
   const connectionString = config.databaseUrl || process.env.DATABASE_URL;
   if (!connectionString) {
-    // Return a dummy pool interface if no DB is configured in test/dev
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('[Database Pool] DATABASE_URL is required in production mode (Fail-Closed).');
+    }
     return {
-      query: async (sql, params) => ({ rows: [] }),
+      query: async () => {
+        throw new Error('[Database Pool] Database is not configured. Provide DATABASE_URL in .env');
+      },
+      connect: async () => {
+        throw new Error('[Database Pool] Database is not configured. Provide DATABASE_URL in .env');
+      },
       on: () => {},
       end: async () => {},
     };

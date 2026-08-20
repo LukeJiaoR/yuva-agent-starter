@@ -6,13 +6,13 @@ Built on **Hexagonal Architecture (Ports & Adapters)**, this template provides b
 
 ---
 
-## 🚀 Key Features
+## 🚀 Key Architectural Highlights
 
-- **Hexagonal Agent Runtime (`@yuva/ai-engine`)**: Multi-provider streaming (OpenAI, DeepSeek, Claude, Ollama, Qwen), dynamic context allocation, token metering, semantic hallucination checks, idempotency, and SSE terminal replay.
-- **Atomic Credit Ledger (`@yuva/billing-core`)**: Pre-reserve, settle on completion, and auto-release on failure with strict database concurrency controls.
-- **Dynamic Context Planner (`@yuva/context-engine`)**: Intelligent token budgeting, priority scoring, and message truncation.
-- **Enterprise Auth & Security (`@yuva/auth-core`)**: Signed session tokens, Clerk identity binding, rate limiting, and response payload redaction.
-- **Zero Domain Leakage**: 100% decoupling between infrastructure engines and domain business logic.
+- **Request-Scoped Agent Streaming (`@yuva/ai-engine`)**: Multi-provider streaming (OpenAI, Anthropic, DeepSeek, Ollama), dynamic context allocation, token metering, semantic validation delivery, and SSE terminal replay. Zero shared closure state across concurrent requests.
+- **Two-Phase Credit Ledger (`@yuva/billing-core`)**: Atomic pre-reservation, completion settlement, and automatic error release with PostgreSQL row locks (`FOR UPDATE`).
+- **Dynamic Context Planner (`@yuva/context-engine`)**: Priority-based token budgeting (`allocateContextBudget`) across system facts, user queries, and historical conversation turns.
+- **Enterprise Auth & Security (`@yuva/auth-core`)**: Clerk JWT verification, signed session tokens, rate limiting, and response payload redaction.
+- **Zero Domain Leakage**: 100% decoupling between infrastructure core packages and domain business logic.
 
 ---
 
@@ -21,21 +21,24 @@ Built on **Hexagonal Architecture (Ports & Adapters)**, this template provides b
 ```text
 yuva-agent-starter/
 ├── packages/
-│   ├── ai-engine/         # Generic Agent Runtime & Stream Emitters
-│   ├── context-engine/    # Dynamic Token Budgeting & Priority Planner
-│   ├── billing-core/      # Atomic Credit Ledger & Reservation State Machine
-│   ├── auth-core/         # Token Security & Clerk Auth Middleware
-│   └── admin-core/        # Financial Audit & Admin Control Guards
+│   ├── ai-engine/         # Generic Agent Runtime, Stream Emitter & Provider Adapters
+│   ├── context-engine/    # Dynamic Token Budgeting & Priority Allocation
+│   ├── billing-core/      # Atomic Credit Ledger & Two-Phase Reservation State Machine
+│   ├── auth-core/         # Token Security, Clerk Auth Middleware & Response Hardening
+│   └── admin-core/        # Financial Audit Logging & Admin Controls
 ├── starter-app/
 │   ├── server/
 │   │   ├── domain/        # 🎯 Customization Point: Domain Adapter, Prompts, Pricing
+│   │   │   ├── adapter.js         # Deterministic calculations & SHA256 snapshot
+│   │   │   ├── pricing.config.js  # Feature pricing & credit costs
+│   │   │   └── prompts.js         # Domain prompt templates
 │   │   ├── routes/        # Express API Routes (chatStream, analyze, health)
 │   │   ├── db/            # Standard PostgreSQL pool (pg)
 │   │   └── index.js       # Composition Root
-│   └── tests/             # Unit & Integration Tests
+│   └── tests/             # Comprehensive Integration Tests
 └── scripts/
     ├── verify-boundaries.mjs # Domain Leakage Boundary Checker
-    └── schema.sql         # Production PostgreSQL Schema
+    └── schema.sql         # Production PostgreSQL Schema (Accounts, Grants, Ledger)
 ```
 
 ---
@@ -56,12 +59,14 @@ Copy `.env.example` to `.env` inside `starter-app/`:
 cp starter-app/.env.example starter-app/.env
 ```
 
-Set your database and OpenAI/DeepSeek API credentials:
+Set your database and OpenAI/Anthropic/DeepSeek API credentials:
 
 ```env
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/starter_agent_db
+AI_PROVIDER=openai
 OPENAI_API_KEY=sk-...
 OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-4o
 ```
 
 ### 3. Initialize Database
