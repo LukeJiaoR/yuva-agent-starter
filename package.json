@@ -1,0 +1,23 @@
+{
+  "name": "yuva-agent-starter-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "starter-app"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "npm --prefix starter-app run dev",
+    "start": "npm --prefix starter-app run start",
+    "test": "node scripts/verify-boundaries.mjs && vitest run",
+    "test:packages": "node scripts/verify-boundaries.mjs && vitest run packages/",
+    "verify:boundaries": "node scripts/verify-boundaries.mjs"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.8"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@yuva/admin-core",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Operator console operations, audit trails, and financial reconciliation APIs",
+  "main": "index.js",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.8"
+  }
+}
