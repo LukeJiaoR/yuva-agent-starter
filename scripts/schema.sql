@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS credit_usage_requests (
     idempotency_key VARCHAR(200) NOT NULL,
     pricing_strategy VARCHAR(40) NOT NULL DEFAULT 'fixed',
     status VARCHAR(40) NOT NULL DEFAULT 'generating',
+    attempt_no INT NOT NULL DEFAULT 1,
     reserved_credits INT NOT NULL DEFAULT 0,
     settled_credits INT NOT NULL DEFAULT 0,
     credits_released INT NOT NULL DEFAULT 0,
@@ -118,6 +119,7 @@ CREATE TABLE IF NOT EXISTS credit_usage_allocations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     usage_request_id UUID NOT NULL REFERENCES credit_usage_requests(id) ON DELETE CASCADE,
     grant_id UUID NOT NULL REFERENCES credit_grants(id) ON DELETE CASCADE,
+    attempt_no INT NOT NULL DEFAULT 1,
     reserved_credits INT NOT NULL DEFAULT 0,
     settled_credits INT NOT NULL DEFAULT 0,
     released_credits INT NOT NULL DEFAULT 0,
@@ -126,6 +128,7 @@ CREATE TABLE IF NOT EXISTS credit_usage_allocations (
 );
 
 CREATE INDEX IF NOT EXISTS idx_allocations_usage_grant ON credit_usage_allocations(usage_request_id, grant_id);
+CREATE INDEX IF NOT EXISTS idx_allocations_usage_attempt ON credit_usage_allocations(usage_request_id, attempt_no, grant_id);
 
 -- 8. Credit Transactions (Immutable Financial Ledger)
 CREATE TABLE IF NOT EXISTS credit_transactions (

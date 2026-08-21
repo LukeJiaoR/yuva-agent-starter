@@ -288,7 +288,7 @@ describe('Real PostgreSQL Billing & Auth Schema Integration Contract Test', () =
         idempotencyKey: `grant-retry-${Date.now()}`,
       });
 
-      // 1. Initial attempt fails and releases credits
+      // 1. Attempt 1: Fails and releases credits
       const res1 = await reserveFeatureCredits({
         db: testPool,
         userId: RETRY_USER,
@@ -297,6 +297,7 @@ describe('Real PostgreSQL Billing & Auth Schema Integration Contract Test', () =
         credits: 2,
       });
       expect(res1.kind).toBe('reserved');
+      expect(res1.request.attempt_no).toBe(1);
 
       await releaseFeatureCredits({
         db: testPool,
@@ -305,11 +306,11 @@ describe('Real PostgreSQL Billing & Auth Schema Integration Contract Test', () =
         failureClass: 'network_timeout',
       });
 
-      const balanceAfterRelease = await getCreditBalance({ db: testPool, userId: RETRY_USER });
-      expect(balanceAfterRelease.available).toBe(10);
-      expect(balanceAfterRelease.reserved).toBe(0);
+      const balanceAfterRelease1 = await getCreditBalance({ db: testPool, userId: RETRY_USER });
+      expect(balanceAfterRelease1.available).toBe(10);
+      expect(balanceAfterRelease1.reserved).toBe(0);
 
-      // 2. Retry with exact same clientRequestId -> Re-activates released request
+      // 2. Attempt 2: Same clientRequestId fails again and releases credits
       const res2 = await reserveFeatureCredits({
         db: testPool,
         userId: RETRY_USER,
@@ -318,31 +319,93 @@ describe('Real PostgreSQL Billing & Auth Schema Integration Contract Test', () =
         credits: 2,
         allowRetryOnReleased: true,
       });
-
       expect(res2.kind).toBe('reserved');
-      expect(res2.request.id).toBe(res1.request.id);
-      expect(res2.request.status).toBe('generating');
+      expect(res2.request.id).toBe(res1.request.id); // Same usage request
+      expect(res2.request.attempt_no).toBe(2);
       expect(res2.balance.available).toBe(8);
       expect(res2.balance.reserved).toBe(2);
 
-      // 3. Settle retry
-      const settleRetry = await settleFeatureCredits({
+      await releaseFeatureCredits({
         db: testPool,
         userId: RETRY_USER,
         requestId: res2.request.id,
+        failureClass: 'provider_overloaded',
+      });
+
+      const balanceAfterRelease2 = await getCreditBalance({ db: testPool, userId: RETRY_USER });
+      expect(balanceAfterRelease2.available).toBe(10);
+      expect(balanceAfterRelease2.reserved).toBe(0);
+
+      // 3. Attempt 3: Same clientRequestId retries and successfully settles
+      const res3 = await reserveFeatureCredits({
+        db: testPool,
+        userId: RETRY_USER,
+        featureKey: 'deep_reasoning',
+        clientRequestId: RETRY_REQ_ID,
+        credits: 2,
+        allowRetryOnReleased: true,
+      });
+      expect(res3.kind).toBe('reserved');
+      expect(res3.request.id).toBe(res1.request.id);
+      expect(res3.request.attempt_no).toBe(3);
+      expect(res3.balance.available).toBe(8);
+      expect(res3.balance.reserved).toBe(2);
+
+      const settleRetry = await settleFeatureCredits({
+        db: testPool,
+        userId: RETRY_USER,
+        requestId: res3.request.id,
         creditsUsed: 2,
         persistResult: async (client, req) => {
           await client.query(
             `UPDATE credit_usage_requests SET assistant_text = $2 WHERE id = $1`,
-            [req.id, 'Retry succeeded with full text'],
+            [req.id, 'Retry attempt 3 succeeded with full text'],
           );
           return { id: req.id };
         },
       });
 
       expect(settleRetry.request.status).toBe('settled');
+      expect(settleRetry.request.attempt_no).toBe(3);
       expect(settleRetry.balance.available).toBe(8);
       expect(settleRetry.balance.reserved).toBe(0);
+
+      // 4. Financial Audit Assertions on Ledger & Allocations
+      const txRows = await testPool.query(
+        'SELECT transaction_type, idempotency_key, available_delta, reserved_delta FROM credit_transactions WHERE user_id = $1 ORDER BY created_at ASC, id ASC',
+        [RETRY_USER],
+      );
+
+      const reserveTx = txRows.rows.filter((r) => r.transaction_type === 'usage_reserve');
+      const releaseTx = txRows.rows.filter((r) => r.transaction_type === 'usage_release');
+      const settleTx = txRows.rows.filter((r) => r.transaction_type === 'usage_charge');
+
+      expect(reserveTx.length).toBe(3);
+      expect(releaseTx.length).toBe(2);
+      expect(settleTx.length).toBe(1);
+
+      // Verify each attempt has a distinct, conflict-free idempotency key
+      expect(reserveTx[0].idempotencyKey || reserveTx[0].idempotency_key).toContain(':1:');
+      expect(reserveTx[1].idempotencyKey || reserveTx[1].idempotency_key).toContain(':2:');
+      expect(reserveTx[2].idempotencyKey || reserveTx[2].idempotency_key).toContain(':3:');
+
+      expect(releaseTx[0].idempotencyKey || releaseTx[0].idempotency_key).toContain(':1:');
+      expect(releaseTx[1].idempotencyKey || releaseTx[1].idempotency_key).toContain(':2:');
+
+      expect(settleTx[0].idempotencyKey || settleTx[0].idempotency_key).toContain(':3:');
+
+      // Verify all 3 attempt allocations are preserved in history
+      const allocRows = await testPool.query(
+        'SELECT attempt_no, reserved_credits, settled_credits, released_credits FROM credit_usage_allocations WHERE usage_request_id = $1 ORDER BY attempt_no ASC',
+        [res1.request.id],
+      );
+      expect(allocRows.rows.length).toBe(3);
+      expect(allocRows.rows[0].attempt_no).toBe(1);
+      expect(allocRows.rows[0].released_credits).toBe(2);
+      expect(allocRows.rows[1].attempt_no).toBe(2);
+      expect(allocRows.rows[1].released_credits).toBe(2);
+      expect(allocRows.rows[2].attempt_no).toBe(3);
+      expect(allocRows.rows[2].settled_credits).toBe(2);
     } finally {
       await testPool.end();
     }

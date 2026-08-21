@@ -480,14 +480,16 @@ export async function reserveFeatureCredits({
         if (integer(account.available_credits) < reserveCredits) {
           return { kind: "insufficient", balance: await readCreditBalance({ db: client, userId }) };
         }
+        const nextAttemptNo = integer(existing.attempt_no || 1) + 1;
         const { rows: [reactivatedRequest] } = await client.query(
           `UPDATE credit_usage_requests
               SET status = 'generating',
-                  reserved_credits = $2,
+                  attempt_no = $2,
+                  reserved_credits = $3,
                   settled_credits = 0,
                   credits_released = 0,
                   billable_tokens = 0,
-                  balance_before = $3,
+                  balance_before = $4,
                   balance_after = NULL,
                   result_id = NULL,
                   assistant_text = NULL,
@@ -496,17 +498,17 @@ export async function reserveFeatureCredits({
                   completed_at = NULL,
                   settled_at = NULL,
                   updated_at = NOW(),
-                  metadata = metadata || $4::jsonb
+                  metadata = metadata || $5::jsonb
             WHERE id = $1
             RETURNING *`,
           [
             existing.id,
+            nextAttemptNo,
             reserveCredits,
             integer(account.available_credits),
             JSON.stringify(metadata || {}),
           ],
         );
-        await client.query("DELETE FROM credit_usage_allocations WHERE usage_request_id = $1", [existing.id]);
         request = reactivatedRequest;
       } else {
         return { kind: "existing", request: existing, balance: await readCreditBalance({ db: client, userId }) };
@@ -525,9 +527,9 @@ export async function reserveFeatureCredits({
       const { rows: [insertedRequest] } = await client.query(
         `INSERT INTO credit_usage_requests (
            user_id, feature_key, chart_id, client_request_id, idempotency_key,
-           pricing_strategy, status, reserved_credits, balance_before,
+           pricing_strategy, status, attempt_no, reserved_credits, balance_before,
            started_at, metadata
-         ) VALUES ($1,$2,$3,$4,$5,$6,'generating',$7,$8,NOW(),$9::jsonb)
+         ) VALUES ($1,$2,$3,$4,$5,$6,'generating',1,$7,$8,NOW(),$9::jsonb)
          RETURNING *`,
         [
           userId,
@@ -568,9 +570,9 @@ export async function reserveFeatureCredits({
         [grant.id, take],
       );
       await client.query(
-        `INSERT INTO credit_usage_allocations (usage_request_id, grant_id, reserved_credits)
-         VALUES ($1,$2,$3)`,
-        [request.id, grant.id, take],
+        `INSERT INTO credit_usage_allocations (usage_request_id, grant_id, reserved_credits, attempt_no)
+         VALUES ($1,$2,$3,$4)`,
+        [request.id, grant.id, take, integer(request.attempt_no || 1)],
       );
       allocations.push({ grantId: grant.id, creditType: grant.credit_type, credits: take });
       remaining -= take;
@@ -603,7 +605,7 @@ export async function reserveFeatureCredits({
           available_credits: integer(account.available_credits) - cumulative,
           reserved_credits: integer(account.reserved_credits) + cumulative,
         },
-        idempotencyKey: `reserve:${request.id}:${allocation.grantId}:${request.started_at ? new Date(request.started_at).getTime() : 1}`,
+        idempotencyKey: `reserve:${request.id}:${request.attempt_no || 1}:${allocation.grantId}`,
         sourceType: normalizedFeature,
         sourceId: clientRequestId,
         reason: `Reserve Credits for ${normalizedFeature}`,
@@ -647,10 +649,10 @@ export async function settleFeatureCredits({
       `SELECT a.*, g.credit_type, g.source_type, g.expires_at
          FROM credit_usage_allocations a
          JOIN credit_grants g ON g.id = a.grant_id
-        WHERE a.usage_request_id = $1
+        WHERE a.usage_request_id = $1 AND a.attempt_no = $2
         ORDER BY ${creditGrantSpendOrderSql("g.")}
         FOR UPDATE OF a, g`,
-      [request.id],
+      [request.id, integer(request.attempt_no || 1)],
     );
     let toSettle = charge;
     let totalRelease = 0;
@@ -663,9 +665,9 @@ export async function settleFeatureCredits({
       const expired = creditGrantIsExpired(allocation);
       await client.query(
         `UPDATE credit_usage_allocations
-            SET settled_credits = $3, released_credits = $4
-          WHERE usage_request_id = $1 AND grant_id = $2`,
-        [request.id, allocation.grant_id, settled, released],
+            SET settled_credits = $3, released_credits = $4, updated_at = NOW()
+          WHERE usage_request_id = $1 AND grant_id = $2 AND attempt_no = $5`,
+        [request.id, allocation.grant_id, settled, released, integer(request.attempt_no || 1)],
       );
       await client.query(
         `UPDATE credit_grants
@@ -716,7 +718,7 @@ export async function settleFeatureCredits({
           entryType: "settle",
           reservedDelta: -outcome.settled,
           account: { ...account, available_credits: availableSnapshot, reserved_credits: reservedSnapshot },
-          idempotencyKey: `settle:${request.id}:${outcome.grant_id}`,
+          idempotencyKey: `settle:${request.id}:${request.attempt_no || 1}:${outcome.grant_id}`,
           sourceType: request.feature_key,
           sourceId: request.client_request_id,
           reason: `Settle ${request.feature_key} Credit usage`,
@@ -735,7 +737,7 @@ export async function settleFeatureCredits({
           availableDelta: outcome.expired ? 0 : outcome.released,
           reservedDelta: -outcome.released,
           account: { ...account, available_credits: availableSnapshot, reserved_credits: reservedSnapshot },
-          idempotencyKey: `release-unused:${request.id}:${outcome.grant_id}`,
+          idempotencyKey: `release-unused:${request.id}:${request.attempt_no || 1}:${outcome.grant_id}`,
           sourceType: request.feature_key,
           sourceId: request.client_request_id,
           reason: outcome.expired
@@ -803,10 +805,10 @@ export async function releaseFeatureCredits({
       `SELECT a.*, g.credit_type, g.source_type, g.expires_at
          FROM credit_usage_allocations a
          JOIN credit_grants g ON g.id = a.grant_id
-        WHERE a.usage_request_id = $1
+        WHERE a.usage_request_id = $1 AND a.attempt_no = $2
         ORDER BY ${creditGrantSpendOrderSql("g.")}
         FOR UPDATE OF a, g`,
-      [request.id],
+      [request.id, integer(request.attempt_no || 1)],
     );
     let released = 0;
     let availableReleased = 0;
@@ -819,9 +821,9 @@ export async function releaseFeatureCredits({
       const expired = creditGrantIsExpired(allocation);
       await client.query(
         `UPDATE credit_usage_allocations
-            SET released_credits = released_credits + $3
-          WHERE usage_request_id = $1 AND grant_id = $2`,
-        [request.id, allocation.grant_id, amount],
+            SET released_credits = released_credits + $3, updated_at = NOW()
+          WHERE usage_request_id = $1 AND grant_id = $2 AND attempt_no = $4`,
+        [request.id, allocation.grant_id, amount, integer(request.attempt_no || 1)],
       );
       await client.query(
         `UPDATE credit_grants
@@ -860,7 +862,7 @@ export async function releaseFeatureCredits({
         availableDelta: release.expired ? 0 : release.amount,
         reservedDelta: -release.amount,
         account: { ...account, available_credits: availableSnapshot, reserved_credits: reservedSnapshot },
-        idempotencyKey: `release:${request.id}:${release.grant_id}`,
+        idempotencyKey: `release:${request.id}:${request.attempt_no || 1}:${release.grant_id}`,
         sourceType: request.feature_key,
         sourceId: request.client_request_id,
         reason: release.expired
