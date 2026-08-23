@@ -45,6 +45,11 @@ yuva-agent-starter/
 
 ## ⚡ Quickstart
 
+### Prerequisite
+
+- Node.js 24 LTS is the default development and production runtime.
+- The reusable core packages are continuously verified on Node.js 22 and 24.
+
 ### 1. Install Dependencies
 
 ```bash
