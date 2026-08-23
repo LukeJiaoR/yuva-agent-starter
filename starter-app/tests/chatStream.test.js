@@ -273,7 +273,7 @@ describe('Chat Stream Route & Agent Runtime Integration (Contract Verification)'
 
   it('enforces strict tenant isolation on conversation history', async () => {
     const mockDb = createMockDb({ availableCredits: 10 });
-    const CONV_ID = 'conv-private-other-user';
+    const CONV_ID = '32693cb4-e466-46ce-ba55-9a305a9388d1';
     mockDb.state.conversations.set(CONV_ID, { id: CONV_ID, user_id: OTHER_USER_ID });
     mockDb.state.messages.push({
       conversation_id: CONV_ID,

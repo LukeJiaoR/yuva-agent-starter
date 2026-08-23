@@ -5,19 +5,39 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "starter-app"
+    "starter-app",
+    "starter-web"
   ],
+  "packageManager": "npm@10.9.8",
   "engines": {
     "node": ">=22 <25"
   },
   "scripts": {
-    "dev": "npm --prefix starter-app run dev",
+    "create": "node scripts/create-web-app.mjs",
+    "dev": "concurrently --kill-others --names api,web --prefix-colors blue,green \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "npm --prefix starter-app run dev",
+    "dev:web": "npm --prefix starter-web run dev",
     "start": "npm --prefix starter-app run start",
+    "build": "npm --prefix starter-web run build",
+    "preview": "npm --prefix starter-web run preview",
+    "db:migrate": "node scripts/database.mjs migrate",
+    "db:seed": "node scripts/database.mjs seed",
+    "db:setup": "node scripts/database.mjs setup",
+    "db:check": "node scripts/database.mjs check",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "setup": "npm run db:setup",
     "test": "node scripts/verify-boundaries.mjs && vitest run",
     "test:packages": "node scripts/verify-boundaries.mjs && vitest run packages/",
-    "verify:boundaries": "node scripts/verify-boundaries.mjs"
+    "verify:boundaries": "node scripts/verify-boundaries.mjs",
+    "check": "npm test && npm run build"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "pg": "^8.16.3"
   },
   "devDependencies": {
+    "concurrently": "^10.0.0",
     "vitest": "^4.1.8"
   }
 }

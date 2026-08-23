@@ -1,0 +1,12 @@
+.git
+.github
+node_modules
+**/node_modules
+dist
+**/dist
+coverage
+**/coverage
+.env
+**/.env
+*.log
+.DS_Store

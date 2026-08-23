@@ -17,19 +17,52 @@ import {
 } from '../../../packages/billing-core/index.js';
 import { DomainPrompts } from '../domain/prompts.js';
 import { PricingCatalog } from '../domain/pricing.config.js';
+import { toPublicError } from '../http/errors.js';
 
 export function createChatStreamRoutes({
   db,
   adapter,
   callAIStream,
+  validateOutput,
   env = process.env,
 } = {}) {
   const router = express.Router();
 
+  function normalizeRequest(body) {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      const error = new Error('Request body must be an object');
+      error.status = 400;
+      error.code = 'invalid_request';
+      throw error;
+    }
+    const question = String(body.question || '').trim();
+    if (!question || question.length > 4000) {
+      const error = new Error('Question must contain between 1 and 4000 characters');
+      error.status = 400;
+      error.code = 'invalid_request';
+      throw error;
+    }
+    const requestId = String(body.requestId || body.clientRequestId || body.request_id || '').trim();
+    if (requestId && (!/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,119}$/u.test(requestId))) {
+      const error = new Error('Request ID is invalid');
+      error.status = 400;
+      error.code = 'invalid_request';
+      throw error;
+    }
+    const conversationId = String(body.conversationId || body.conversation_id || '').trim();
+    if (conversationId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(conversationId)) {
+      const error = new Error('Conversation ID must be a UUID');
+      error.status = 400;
+      error.code = 'invalid_request';
+      throw error;
+    }
+    return { ...body, question, ...(requestId ? { requestId } : {}), ...(conversationId ? { conversationId } : {}) };
+  }
+
   // 1. Domain Port (Ensures deterministic facts & tenant-isolated conversation history)
   const domainPort = {
     async prepare({ request, user, db: activeDb }) {
-      const input = request || {};
+      const input = normalizeRequest(request);
       const conversationId = input.conversationId || input.conversation_id || crypto.randomUUID();
       const clientRequestId = input.requestId || input.clientRequestId || input.request_id || crypto.randomUUID();
       const question = input.question || 'Hello!';
@@ -147,22 +180,44 @@ export function createChatStreamRoutes({
 
   // 4. Validation Port (Buffered Delivery Hook & Validation Extension Point)
   const validationPort = {
-    async createDelivery({ onCommit }) {
+    async createDelivery({ request }) {
       let buffer = '';
+      let approvedText = '';
       return {
         async push(delta) {
           buffer += delta;
-          onCommit(delta);
         },
         async flush() {
           const text = buffer.trim();
           if (!text) {
             throw new Error('Assistant generated an empty response');
           }
+          const validation = typeof validateOutput === 'function'
+            ? await validateOutput({ text, request })
+            : { valid: true, visibleText: text };
+          if (validation === false || validation?.valid === false) {
+            const error = new Error('Generated output did not pass validation');
+            error.code = 'unsafe_output';
+            error.status = 422;
+            throw error;
+          }
+          const visibleText = typeof validation?.visibleText === 'string'
+            ? validation.visibleText.trim()
+            : text;
+          if (!visibleText) {
+            const error = new Error('Validated output is empty');
+            error.code = 'unsafe_output';
+            error.status = 422;
+            throw error;
+          }
+          approvedText = visibleText;
           return {
-            visibleText: text,
+            visibleText,
             valid: true,
           };
+        },
+        async commit({ onCommit }) {
+          if (approvedText) onCommit(approvedText);
         },
       };
     },
@@ -390,9 +445,10 @@ export function createChatStreamRoutes({
     },
 
     emitError(emitter, error) {
+      const publicError = toPublicError(error);
       emitter?.emit?.('error', {
-        code: error?.code || 'runtime_error',
-        message: error?.message || 'Streaming terminated unexpectedly',
+        code: publicError.code,
+        message: publicError.message,
         retryable: error?.retryable ?? false,
       });
     },
@@ -403,6 +459,23 @@ export function createChatStreamRoutes({
       }
 
       const provider = env.AI_PROVIDER || 'openai';
+      if (provider === 'mock') {
+        if ((env.NODE_ENV || process.env.NODE_ENV) === 'production') {
+          const error = new Error('Mock provider is disabled in production');
+          error.code = 'provider_unavailable';
+          error.status = 503;
+          throw error;
+        }
+        const text = `Starter response for: ${options.userPrompt || options.messages?.at(-1)?.content || 'your question'}`;
+        await options.onText(text);
+        return {
+          provider: 'mock',
+          model: 'starter-local',
+          finishReason: 'stop',
+          billableTokens: countUnicodeTokens(text),
+          usage: { source: 'synthetic' },
+        };
+      }
       const isAnthropic = provider === 'anthropic';
       const apiKey = isAnthropic ? env.ANTHROPIC_API_KEY : env.OPENAI_API_KEY;
       const model = isAnthropic
@@ -480,7 +553,7 @@ export function createChatStreamRoutes({
       }
 
       const result = await runtime({
-        request: req.body,
+        request: normalizeRequest(req.body),
         user,
         req,
         res,
@@ -495,18 +568,19 @@ export function createChatStreamRoutes({
         res.end();
       }
     } catch (err) {
+      const publicError = toPublicError(err);
       if (!res.headersSent) {
-        return res.status(err.status || 500).json({
-          error: err.code || 'runtime_error',
-          message: err.message || 'Internal Server Error',
+        return res.status(publicError.status).json({
+          error: publicError.code,
+          message: publicError.message,
         });
       }
       try {
         writeSseEvent(res, {
           event: 'error',
           data: {
-            error: err.code || 'runtime_error',
-            message: err.message || 'Streaming terminated unexpectedly',
+            error: publicError.code,
+            message: publicError.message,
           },
         });
       } catch {}

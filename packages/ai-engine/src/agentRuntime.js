@@ -372,6 +372,21 @@ export function createAgentRuntime(runtimeDefaults = {}) {
         settled = true;
       }
 
+      // A staged delivery may validate during generation but defer client output
+      // until the credit settlement has committed successfully.
+      if (delivery && typeof delivery.commit === "function") {
+        await delivery.commit({
+          deliveryResult,
+          settlement,
+          onCommit: (committedDelta) => {
+            finalDeliveredText += committedDelta;
+            if (emitter && typeof streamPort.emitTextDelta === "function") {
+              streamPort.emitTextDelta(emitter, committedDelta);
+            }
+          },
+        });
+      }
+
       // 8. Post-settlement memory & telemetry hooks (must never trigger release on error)
       if (typeof memoryPort.persistCandidate === "function") {
         try {
@@ -495,4 +510,3 @@ export function createAgentRuntime(runtimeDefaults = {}) {
 
   };
 }
-

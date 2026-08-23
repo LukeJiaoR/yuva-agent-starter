@@ -7,6 +7,7 @@ export default defineConfig({
     include: [
       'packages/**/*.test.js',
       'starter-app/**/*.test.js',
+      'scripts/**/*.test.js',
     ],
   },
 });

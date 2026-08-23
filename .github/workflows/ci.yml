@@ -52,3 +52,6 @@ jobs:
           TEST_DATABASE_URL: postgresql://ziwei:changeme_in_production@localhost:5432/ziwei
           NODE_ENV: test
         run: npm test
+
+      - name: Build Starter Web
+        run: npm run build

@@ -53,8 +53,9 @@ describe('@yuva/ai-engine AgentRuntime', () => {
     expect(events.length).toBe(4); // start, 2 deltas, done
   });
 
-  it('enforces validation-before-delivery: raw text is buffered and only approved chunks are committed to client', async () => {
+  it('enforces validation and settlement before approved output is committed to the client', async () => {
     const emittedDeltas = [];
+    const lifecycle = [];
     const mockEmitter = {
       emit: (type, data) => {
         if (type === 'text_delta') emittedDeltas.push(data.delta);
@@ -66,6 +67,12 @@ describe('@yuva/ai-engine AgentRuntime', () => {
     const result = await runtime({
       request: { id: 'req-v' },
       user: { id: 'user-1' },
+      billingPort: {
+        settle: async () => {
+          lifecycle.push('settled');
+          return { status: 'settled' };
+        },
+      },
       streamPort: {
         createEmitter: () => mockEmitter,
         emitTextDelta: (em, delta) => em.emit('text_delta', { delta }),
@@ -75,12 +82,13 @@ describe('@yuva/ai-engine AgentRuntime', () => {
         },
       },
       validationPort: {
-        createDelivery: ({ onCommit }) => ({
-          push: async (rawDelta) => {
-            // Buffer/validate and commit sanitised/rewritten delta
-            onCommit(rawDelta.replace('RAW_UNVALIDATED', 'VALIDATED_SAFE'));
+        createDelivery: () => ({
+          push: async () => {},
+          flush: async () => ({ visibleText: 'VALIDATED_SAFE_CHUNK' }),
+          commit: async ({ deliveryResult, onCommit }) => {
+            lifecycle.push('delivered');
+            onCommit(deliveryResult.visibleText);
           },
-          flush: async () => {},
         }),
       },
     });
@@ -88,6 +96,42 @@ describe('@yuva/ai-engine AgentRuntime', () => {
     expect(result.handled).toBe(true);
     expect(result.output).toBe('VALIDATED_SAFE_CHUNK');
     expect(emittedDeltas).toEqual(['VALIDATED_SAFE_CHUNK']);
+    expect(lifecycle).toEqual(['settled', 'delivered']);
+  });
+
+  it('does not commit staged output when settlement fails', async () => {
+    const emittedDeltas = [];
+    const release = vi.fn();
+    const runtime = createAgentRuntime();
+
+    const result = await runtime({
+      request: { id: 'req-settlement-failure' },
+      user: { id: 'user-1' },
+      billingPort: {
+        reserve: async () => ({ id: 'reservation-1' }),
+        settle: async () => { throw new Error('database settlement failed'); },
+        release,
+      },
+      streamPort: {
+        createEmitter: () => ({}),
+        emitTextDelta: (_emitter, delta) => emittedDeltas.push(delta),
+        streamProviderText: async ({ onText }) => {
+          await onText('raw');
+          return { finishReason: 'stop' };
+        },
+      },
+      validationPort: {
+        createDelivery: () => ({
+          push: async () => {},
+          flush: async () => ({ visibleText: 'approved' }),
+          commit: async ({ deliveryResult, onCommit }) => onCommit(deliveryResult.visibleText),
+        }),
+      },
+    });
+
+    expect(result.terminalStatus).toBe('released');
+    expect(emittedDeltas).toEqual([]);
+    expect(release).toHaveBeenCalledOnce();
   });
 
   it('guarantees zero-commit rejection: authoritative output is empty and raw text never leaks to settlement or memory', async () => {
