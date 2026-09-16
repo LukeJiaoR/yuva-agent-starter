@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { beginAdminAction, finishAdminAction } from '../../packages/admin-core/index.js';
 import { provisionExternalIdentity } from '../../packages/auth-core/index.js';
 import { createServer } from '../server/index.js';
+import { reserveFeatureCredits, settleFeatureCredits } from '../../packages/billing-core/index.js';
 
 const { Pool } = pg;
 const testDir = path.dirname(fileURLToPath(import.meta.url));
@@ -21,6 +22,11 @@ describe('out-of-box HTTP and database contract', () => {
   let server;
   let baseUrl;
   let available = false;
+  const provider = vi.fn(async ({ onText }) => {
+    await onText('RAW_UNVALIDATED_CHUNK');
+    return { finishReason: 'stop', billableTokens: 4 };
+  });
+  const validator = vi.fn(async ({ text }) => ({ valid: true, visibleText: text.replace('RAW_UNVALIDATED', 'VALIDATED_SAFE') }));
 
   beforeAll(async () => {
     adminPool = new Pool({ connectionString: baseDatabaseUrl, connectionTimeoutMillis: 5000 });
@@ -48,14 +54,8 @@ describe('out-of-box HTTP and database contract', () => {
     db = new Pool({ connectionString: databaseUrl });
     const app = createServer({
       db,
-      callAIStream: async ({ onText }) => {
-        await onText('RAW_UNVALIDATED_CHUNK');
-        return { finishReason: 'stop', billableTokens: 4 };
-      },
-      validateOutput: async ({ text }) => ({
-        valid: true,
-        visibleText: text.replace('RAW_UNVALIDATED', 'VALIDATED_SAFE'),
-      }),
+      callAIStream: provider,
+      validateOutput: validator,
       config: {
         env: {
           NODE_ENV: 'development',
@@ -134,6 +134,50 @@ describe('out-of-box HTTP and database contract', () => {
     expect(stream).toContain('VALIDATED_SAFE_CHUNK');
     expect(stream).not.toContain('RAW_UNVALIDATED_CHUNK');
     expect(stream).toContain('event: done');
+  });
+
+  it('charges the default operation exactly 2 credits, then replays without a new call', async (ctx) => {
+    if (!available) return ctx.skip();
+    const before = provider.mock.calls.length;
+    const body = { question: 'Fixed price', requestId: 'fixed-baseline' };
+    const send = () => fetch(`${baseUrl}/api/chat/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    expect(await (await send()).text()).toContain('event: done');
+    expect(await (await send()).text()).toContain('"replayed":true');
+    expect(provider.mock.calls.length - before).toBe(1);
+    const { rows: [request] } = await db.query('SELECT * FROM credit_usage_requests WHERE client_request_id=$1', [body.requestId]);
+    expect(request.settled_credits).toBe(2);
+    const { rows } = await db.query("SELECT * FROM credit_transactions WHERE usage_request_id=$1 AND transaction_type='usage_charge'", [request.id]);
+    expect(rows).toHaveLength(1);
+  });
+
+  it('releases failed validation and refuses unsupported media before provider or reservation', async (ctx) => {
+    if (!available) return ctx.skip();
+    validator.mockResolvedValueOnce({ valid: false });
+    const failed = await fetch(`${baseUrl}/api/chat/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: 'Reject output', requestId: 'validation-baseline' }) });
+    const text = await failed.text();
+    expect(text).toContain('event: error');
+    expect(text).not.toContain('event: text_delta');
+    const { rows: [request] } = await db.query('SELECT * FROM credit_usage_requests WHERE client_request_id=$1', ['validation-baseline']);
+    expect(request.status).toBe('released');
+    expect(request.credits_released).toBe(2);
+    const calls = provider.mock.calls.length;
+    const media = await fetch(`${baseUrl}/api/chat/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: 'Image', requestId: 'media-baseline', taskType: 'image', mode: 'async' }) });
+    expect(media.status).toBe(422);
+    expect((await media.json()).error).toBe('unsupported_operation');
+    expect(provider.mock.calls.length).toBe(calls);
+    expect((await db.query('SELECT id FROM credit_usage_requests WHERE client_request_id=$1', ['media-baseline'])).rows).toHaveLength(0);
+  });
+
+  it('characterizes zero, excess and repeated ledger settlement on a real database', async (ctx) => {
+    if (!available) return ctx.skip();
+    const userId = '00000000-0000-0000-0000-000000000001';
+    await expect(reserveFeatureCredits({ db, userId, featureKey: 'baseline', clientRequestId: 'zero-baseline', credits: 0 })).rejects.toThrow('positive');
+    const reserved = await reserveFeatureCredits({ db, userId, featureKey: 'baseline', clientRequestId: 'ledger-baseline', credits: 2 });
+    const args = { db, userId, requestId: reserved.request.id };
+    await expect(settleFeatureCredits({ ...args, creditsUsed: 0 })).rejects.toThrow('positive');
+    await expect(settleFeatureCredits({ ...args, creditsUsed: 3 })).rejects.toThrow('exceeds reservation');
+    expect((await settleFeatureCredits({ ...args, creditsUsed: 2 })).replay).toBe(false);
+    expect((await settleFeatureCredits({ ...args, creditsUsed: 2 })).replay).toBe(true);
   });
 
   it('provides schema parity for external identity provisioning and admin audit', async (ctx) => {

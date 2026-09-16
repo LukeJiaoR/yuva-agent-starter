@@ -1,6 +1,7 @@
 const SAFE_CODE_PATTERN = /^[a-z][a-z0-9_:-]{0,79}$/u;
 
 const PUBLIC_MESSAGES = Object.freeze({
+  unsupported_operation: 'This task type and execution mode are not enabled.',
   invalid_json: 'The request body must be valid JSON.',
   invalid_request: 'The request is invalid. Review the submitted fields and try again.',
   unauthorized: 'Authentication is required.',
@@ -15,7 +16,7 @@ const PUBLIC_MESSAGES = Object.freeze({
 function safeCode(error) {
   const code = String(error?.code || '').trim();
   if (!SAFE_CODE_PATTERN.test(code)) return '';
-  if (/^(?:provider_|runtime_|unsafe_output|invalid_request|unauthorized|insufficient_credits)/u.test(code)) {
+  if (/^(?:provider_|runtime_|unsupported_operation|unsafe_output|invalid_request|unauthorized|insufficient_credits)/u.test(code)) {
     return code;
   }
   return '';

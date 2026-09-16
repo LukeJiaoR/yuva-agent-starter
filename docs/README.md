@@ -22,3 +22,5 @@ The system shape and package boundaries are documented in [Architecture](../ARCH
 ## Source of truth
 
 Executable code, `.env.example`, `scripts/schema.sql`, and CI are authoritative. If a guide differs from the implementation, treat that as a documentation bug and update both in the same change.
+
+Pricing and lifecycle contracts: [Operations, pricing and settlement](architecture/pricing-and-settlement.md).

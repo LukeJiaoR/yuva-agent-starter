@@ -1,0 +1,102 @@
+# Pricing, operations and settlement contract
+
+Status: version 1 contract; implementation tracked by Epic #1.
+
+## Authority and boundaries
+
+`packages/billing-core/src/operationContract.js` defines executable validation. A
+policy implements `quote(operation, executionLimits)` and
+`decide(quote, usage, fulfillment)`. It receives immutable facts, no database or
+provider client, and never changes balances. An adapter validates ownership,
+quote association, amounts and state before calling the existing ledger.
+
+The account-scoped Operation represents the customer's logical request. Its
+server-generated ID persists across attempts. Each external invocation has a
+separate call ID; polling an existing job is not another generation. Three
+internal calls in one operation can cost the product three times while charging
+one fixed fee. Three distinct operations can charge three fees.
+
+Input identity includes feature, input schema version, task/mode, product input,
+model/specification choices and stable input asset versions. Access URLs are
+transport credentials, not asset identity. The application checks asset ownership
+before constructing this identity. Same account/key with different input conflicts.
+
+## Contract fields and units
+
+| Object | Fields and meaning |
+| --- | --- |
+| Operation | id, accountId, featureKey, clientRequestId, taskType (text/image/video), mode (sync/stream/async), inputVersion, normalized input |
+| Quote | contractVersion, policyId/version, unit=credit, reserveCredits, authorizedCredits, terms, limits, billingScope, missingUsage, fulfillmentVersion, createdAt/expiresAt |
+| Execution limits | Allowed models, maxCalls, maxRetries, deadlineMs; type-specific maxInputTokens/maxOutputTokens, maxImages or maxDurationMs |
+| UsageRecord | operationId, attempt, callId, provider/model, outcome, typed metrics with integer value or null, unit and source |
+| Decision | action=settle/release/defer, reason, credits for settle; zero means successful no-charge, not failed execution |
+| FulfillmentResult | status, ruleVersion, accountId, stable resultId, artifacts with identity, type, state, owner and content or stable storageKey/specs |
+
+Credits are integers in [0, 2147483647], matching PostgreSQL INT. Invalid numeric
+coercion, negative amounts and overflow must fail before the ledger. Token rates
+will use integer ratios, aggregate eligible input/output separately and round up
+once per operation. Reasoning and cache tokens are subsets, not additions to total
+input/output. Unknown usage is null/missing; estimates never overwrite provider
+facts. Media time uses integer milliseconds. Different units/currencies cannot be
+summed. Provider cost and user rates are separate facts.
+
+Quotes freeze terms, rounding, model/call/output limits, eligibility and missing
+usage rules. Expiration prevents starting a new quoted operation; it does not
+reprice an already accepted one. Old policy versions remain addressable or the
+operation defers. A newer global price never replaces an in-flight quote.
+
+## State and recovery
+
+Execution: pending/running/submission_unknown/succeeded/failed/cancelled.
+Financial: unreserved/reserved/settled/no_charge/released/reconciliation_required.
+Fulfillment: pending/partial/ready/failed. These states have different owners.
+
+Ready means application-validated, durably stored, owned and recoverable; it is
+not an HTTP status or an SSE write. A client disconnect does not reverse a charge.
+Text or JSON can be stored with the result; media uses immutable object identity,
+not an expiring URL. Object transfer happens outside financial transactions.
+
+Default fixed policy charges on ready, releases on confirmed failed delivery and
+defers on pending/partial. Cancellation only releases after the execution outcome
+and the frozen product rule permit it. Internal failed retries are excluded from
+customer token charges but count against product budgets. Unknown required usage
+defers; estimation requires an explicit frozen rule and provenance. A zero-fee
+success persists a replayable result and releases any reservation using the ledger.
+
+Transaction rollback is distinct from unknown COMMIT acknowledgment. Unknown
+outcomes require database reconciliation. A worker lease expires ownership, not
+an external provider job. Recovery must fence old workers, inspect existing jobs,
+and never blindly resubmit a possibly accepted paid generation. Financial recovery
+belongs to #13; actual media execution and storage belong to #14.
+
+## Observed legacy behavior and migration
+
+At baseline 275733b, the default deep_reasoning route reserves and charges 2
+credits regardless of token count. Duplicate generating requests return 202;
+settled ones replay SSE without calling the provider. Failed validation prevents
+text delivery and releases the reservation.
+
+The current `reserveFeatureCredits` and `settleFeatureCredits` reject zero.
+Settlement above reservation throws; repeated positive settlement returns the
+existing settled request without another debit. Both functions coerce through the
+legacy integer helper, so the new adapter must validate amounts strictly first.
+The ledger preserves grant expiry and attempt-specific allocation history.
+
+Known defects to fix rather than preserve: route-local pricing and output-length
+usage fallback (#6/#8), no input conflict checks or frozen quote (#5), process-local
+settled flag and catch always reporting released (#11), best-effort conversation
+writes being insufficient for canonical replay (#11), no durable reconciliation
+(#13). Do not encode these defects as required compatibility behavior.
+
+The first phase adds validators and characterization tests, preserving the old
+billingPort API. Later phases add stores, policies, budgets and recovery, then
+switch application composition. Unsupported task/mode is rejected before credits
+or provider calls. Text remains realtime. Media contract fixtures establish
+extensibility, not a working image/video provider or storage implementation.
+
+## Verification
+
+`npm run check` runs validators, existing route behavior, real PostgreSQL ledger
+boundaries and production build. Set TEST_DATABASE_URL explicitly for database
+checks; CI must fail rather than skip if it is unavailable. Subsequent phases add
+fault injection and upgrade coverage alongside each implementation.
