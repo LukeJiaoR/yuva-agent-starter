@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import pg from 'pg';
 import { migrateDatabase } from './migrations.mjs';
-import { grantCredits } from '../packages/billing-core/index.js';
+import { grantCredits } from '@yuva/billing-core';
 
 const { Pool } = pg;
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');

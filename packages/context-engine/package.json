@@ -1,6 +1,6 @@
 {
   "name": "@yuva/context-engine",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "description": "Session knowledge sandboxes, immutable snapshots, long/short-term memory, and context budget management",
   "main": "index.js",
@@ -9,5 +9,23 @@
   },
   "devDependencies": {
     "vitest": "^4.1.8"
+  },
+  "license": "MIT",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "src",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22 <25"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/LukeJiaoR/yuva-agent-starter.git",
+    "directory": "packages/context-engine"
   }
 }

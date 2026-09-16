@@ -7,15 +7,15 @@ import {
   setSseHeaders,
   streamProviderText,
   countUnicodeTokens,
-} from '../../../packages/ai-engine/index.js';
-import { allocateContextBudget } from '../../../packages/context-engine/index.js';
+} from '@yuva/ai-engine';
+import { allocateContextBudget } from '@yuva/context-engine';
 import {
   reserveFeatureCredits,
   settleFeatureCredits,
   releaseFeatureCredits,
   getCreditBalance,
   assertCapability,
-} from '../../../packages/billing-core/index.js';
+} from '@yuva/billing-core';
 import { DomainPrompts } from '../domain/prompts.js';
 import { PricingCatalog } from '../domain/pricing.config.js';
 import { toPublicError } from '../http/errors.js';

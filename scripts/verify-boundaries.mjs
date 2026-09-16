@@ -66,8 +66,34 @@ for (const pkg of EXTRACTED_PACKAGES) {
       violations.push(`[MANIFEST REVERSE DEPENDENCY] packages/${pkg}/package.json depends on ${dependency}`);
     }
   }
+  if (manifest.exports?.['.'] !== './index.js') violations.push(`[PUBLIC EXPORT] ${pkg} must expose its root entry`);
+  const declared = { ...manifest.dependencies, ...manifest.peerDependencies };
+  for (const source of [path.join(pkgDir, 'index.js'), ...fs.readdirSync(path.join(pkgDir, 'src')).filter((name) => name.endsWith('.js')).map((name) => path.join(pkgDir, 'src', name))]) {
+    for (const match of fs.readFileSync(source, 'utf8').matchAll(IMPORT_PATTERN)) {
+      const specifier = match[1] || match[2];
+      if (specifier.startsWith('.') || specifier.startsWith('node:')) continue;
+      const dep = specifier.startsWith('@') ? specifier.split('/').slice(0, 2).join('/') : specifier.split('/')[0];
+      if (!declared[dep]) violations.push(`[UNDECLARED DEPENDENCY] ${source}: ${dep}`);
+    }
+  }
   scanDir(pkgDir, pkgDir);
 }
+
+function checkConsumer(dir, dependencies) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === 'node_modules') continue;
+    const file = path.join(dir, entry.name);
+    if (entry.isDirectory()) checkConsumer(file, dependencies);
+    else if (entry.name.endsWith('.js')) {
+      for (const match of fs.readFileSync(file, 'utf8').matchAll(IMPORT_PATTERN)) {
+        const specifier = match[1] || match[2];
+        if (specifier.includes('/packages/')) violations.push(`[CONSUMER SOURCE IMPORT] ${file}`);
+        if (specifier.startsWith('@yuva/') && !dependencies[specifier]) violations.push(`[UNDECLARED CORE IMPORT] ${file}: ${specifier}`);
+      }
+    }
+  }
+}
+checkConsumer(path.join(ROOT_DIR, 'starter-app/server'), JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'starter-app/package.json'))).dependencies);
 
 if (violations.length > 0) {
   console.error('\n❌ Package boundary violations found:');

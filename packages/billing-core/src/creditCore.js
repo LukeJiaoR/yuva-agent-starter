@@ -453,6 +453,7 @@ export async function reserveFeatureCredits({
   pricingStrategy = "fixed",
   metadata = {},
   allowRetryOnReleased = true,
+  resetResult = null,
 }) {
   const normalizedFeature = normalizeFeatureKey(featureKey);
   const reserveCredits = integer(credits);
@@ -492,11 +493,9 @@ export async function reserveFeatureCredits({
                   balance_before = $4,
                   balance_after = NULL,
                   result_id = NULL,
-                  assistant_text = NULL,
                   failure_class = NULL,
                   started_at = NOW(),
                   completed_at = NULL,
-                  settled_at = NULL,
                   updated_at = NOW(),
                   metadata = metadata || $5::jsonb
             WHERE id = $1
@@ -510,6 +509,7 @@ export async function reserveFeatureCredits({
           ],
         );
         request = reactivatedRequest;
+        if (typeof resetResult === "function") await resetResult(client, request);
       } else {
         return { kind: "existing", request: existing, balance: await readCreditBalance({ db: client, userId }) };
       }
