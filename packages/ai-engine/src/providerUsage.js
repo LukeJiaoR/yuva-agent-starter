@@ -95,11 +95,13 @@ export function normalizeSdkProviderResult(
   const requestId = typeof extractRequestId === "function"
     ? extractRequestId(data)
     : data.response?.id;
+  const providerObservedModel = boundedString(data.response?.modelId, 160);
 
   return {
     text: String(data.text || ""),
     provider: boundedString(provider, 80),
-    model: boundedString(data.response?.modelId || model, 160),
+    model: providerObservedModel || boundedString(model, 160),
+    modelIdentitySource: providerObservedModel ? "provider_response" : "requested_fallback",
     requestId: boundedString(requestId, 255),
     finishReason,
     outcome: safetyRefusal
@@ -125,6 +127,7 @@ export function createSyntheticProviderResult({
     text: String(text || ""),
     provider,
     model,
+    modelIdentitySource: "synthetic_explicit",
     requestId,
     finishReason,
     outcome,

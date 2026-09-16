@@ -140,3 +140,15 @@ describe('@yuva/auth-core', () => {
     });
   });
 });
+
+describe('injected auth verifier compatibility', () => {
+  it.each([createRequireAuth, createOptionalAuth])('supports product-owned verifier injection', async (factory) => {
+    const tokenVerifier = vi.fn(async () => ({ data: { sub: 'external-1' }, errors: null }));
+    const user = { id: 'user-1' };
+    const middleware = factory({ db: {}, tokenVerifier, findUser: async () => user,
+      env: { CLERK_JWT_KEY: 'fixture', CLERK_AUTHORIZED_PARTIES: 'https://example.test' } });
+    const req = { headers: { authorization: 'Bearer fixture' } }, next = vi.fn();
+    await middleware(req, { status: vi.fn().mockReturnThis(), json: vi.fn() }, next);
+    expect(tokenVerifier).toHaveBeenCalledOnce(); expect(req.user).toBe(user); expect(next).toHaveBeenCalledOnce();
+  });
+});

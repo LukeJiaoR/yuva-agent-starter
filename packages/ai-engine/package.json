@@ -1,6 +1,6 @@
 {
   "name": "@yuva/ai-engine",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "description": "Multi-provider AI orchestration, SSE streaming, token metering, and prompt evaluation framework",
   "main": "index.js",
@@ -15,5 +15,23 @@
   },
   "devDependencies": {
     "vitest": "^4.1.8"
+  },
+  "license": "MIT",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "src",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22 <25"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/LukeJiaoR/yuva-agent-starter.git",
+    "directory": "packages/ai-engine"
   }
 }
