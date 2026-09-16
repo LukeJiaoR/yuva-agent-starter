@@ -1,9 +1,9 @@
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import pg from 'pg';
+import { migrateDatabase } from './migrations.mjs';
 import { grantCredits } from '../packages/billing-core/index.js';
 
 const { Pool } = pg;
@@ -22,19 +22,8 @@ if (!databaseUrl) {
 const pool = new Pool({ connectionString: databaseUrl, max: 4, connectionTimeoutMillis: 5000 });
 
 async function migrate() {
-  const sql = await fs.readFile(path.join(rootDir, 'scripts', 'schema.sql'), 'utf8');
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query(sql);
-    await client.query('COMMIT');
-    console.log('Database schema is up to date.');
-  } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw error;
-  } finally {
-    client.release();
-  }
+  await migrateDatabase(pool);
+  console.log('Database migrations are up to date.');
 }
 
 async function seed() {

@@ -27,7 +27,7 @@ function object(value) {
 }
 export function validateOperation(operation) {
   object(operation);
-  for (const field of ['id', 'accountId', 'featureKey', 'clientRequestId', 'inputVersion']) string(operation[field], field === 'clientRequestId' ? 120 : 160);
+  for (const field of ['id', 'accountId', 'featureKey', 'clientRequestId', 'inputVersion']) string(operation[field], field === 'clientRequestId' ? 120 : ['featureKey', 'inputVersion'].includes(field) ? 80 : 160);
   invariant(['text', 'image', 'video'].includes(operation.taskType));
   invariant(['sync', 'stream', 'async'].includes(operation.mode));
   object(operation.input);
