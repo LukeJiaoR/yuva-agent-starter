@@ -198,6 +198,7 @@ export async function generateProviderText({
   generate = generateText,
   modelFactory = createProviderModel,
 }) {
+  let observedUsage = null;
   try {
     const providerConfig = modelFactory({
       provider,
@@ -213,9 +214,12 @@ export async function generateProviderText({
       options,
       signal,
     }));
+    observedUsage = sdkResult.usage;
     return normalizedResult({ provider: providerConfig.provider, requestedModel: model, sdkResult });
   } catch (error) {
-    throw normalizeSdkError(error, signal);
+    const normalized = normalizeSdkError(error, signal);
+    if (observedUsage) normalized.providerResult = normalizeSdkProviderResult({ usage: observedUsage }, { provider, model });
+    throw normalized;
   }
 }
 
@@ -246,6 +250,7 @@ export async function streamProviderText({
   stream = streamText,
   modelFactory = createProviderModel,
 }) {
+  let observedUsage = null;
   try {
     const providerConfig = modelFactory({
       provider,
@@ -284,8 +289,10 @@ export async function streamProviderText({
         if (part.text) await onText(part.text);
       } else if (part.type === "finish-step") {
         finalStep = part;
+        observedUsage = part.usage || observedUsage;
       } else if (part.type === "finish") {
         finish = part;
+        observedUsage = part.totalUsage || observedUsage;
       } else if (part.type === "reasoning-delta") {
         sawReasoning ||= Boolean(part.text);
       }
@@ -313,7 +320,9 @@ export async function streamProviderText({
       },
     });
   } catch (error) {
-    throw normalizeSdkError(error, signal);
+    const normalized = normalizeSdkError(error, signal);
+    if (observedUsage) normalized.providerResult = normalizeSdkProviderResult({ usage: observedUsage }, { provider, model });
+    throw normalized;
   }
 }
 

@@ -58,3 +58,13 @@ requires a schema-compatible release; migrations are not automatically reversed.
 The operation store is injected via the billing adapter in the next phase; this
 phase does not fabricate quotes for historical requests. Failed reservation creates
 no runnable operation. An accepted operation retains its original quote on retry.
+
+## Durable usage
+
+`usageStore.test.js` verifies call-before-provider persistence, failed and partial
+usage, missing versus zero, repeated observations, source history, scoped reads
+and storage failures. `createMeteredProvider` is an injected wrapper; app wiring
+is completed with the budget and billing adapter phases. A started call without
+a completion remains unknown after restart. No output-length token estimate is
+substituted for provider measurements. Costs use integer strings and decimal
+scale, grouped by currency; cached/reasoning metrics remain subsets.
