@@ -14,6 +14,7 @@ import {
   settleFeatureCredits,
   releaseFeatureCredits,
   getCreditBalance,
+  assertCapability,
 } from '../../../packages/billing-core/index.js';
 import { DomainPrompts } from '../domain/prompts.js';
 import { PricingCatalog } from '../domain/pricing.config.js';
@@ -35,6 +36,7 @@ export function createChatStreamRoutes({
       error.code = 'invalid_request';
       throw error;
     }
+    assertCapability({ taskType: body.taskType ?? 'text', mode: body.mode ?? 'stream' });
     const question = String(body.question || '').trim();
     if (!question || question.length > 4000) {
       const error = new Error('Question must contain between 1 and 4000 characters');
