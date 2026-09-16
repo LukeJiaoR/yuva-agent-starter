@@ -68,5 +68,6 @@ describe('durable usage observations', () => {
     expect(() => validateCost({ currency: 'USD', amount: 0.2, scale: 2, source: 'provider', status: 'observed' })).toThrow();
     expect(usageMetrics({ inputTokens: 0, source: 'provider' }).inputTokens.value).toBe(0);
     expect(usageMetrics({}).inputTokens.value).toBeNull();
+    expect(usageMetrics(null).inputTokens.value).toBeNull();
   });
 });

@@ -4,6 +4,7 @@ import { missingProviderUsage } from './providerUsage.js';
 const metricUnits = Object.freeze({ inputTokens: 'token', outputTokens: 'token', cachedInputTokens: 'token', reasoningTokens: 'token', images: 'image', durationMs: 'millisecond' });
 const validInteger = (value) => Number.isSafeInteger(value) && value >= 0;
 export function usageMetrics(usage = missingProviderUsage()) {
+  usage ||= missingProviderUsage();
   const metrics = {};
   for (const [name, unit] of Object.entries(metricUnits)) {
     if (!['inputTokens', 'outputTokens'].includes(name) && usage[name] === undefined) continue;
@@ -31,6 +32,7 @@ export function validateCost(cost) {
   return { amount: cost.amount, scale: cost.scale, currency: cost.currency, source: cost.source, status: cost.status };
 }
 export function usageCost(usage = {}) {
+  usage ||= {};
   if (usage.cost) return validateCost(usage.cost);
   if (usage.providerCost === null || usage.providerCost === undefined || !usage.currency) return null;
   // Normalize the SDK's decimal representation without inventing a rate/currency.
@@ -76,7 +78,7 @@ export function createMeteredProvider({ store, operation, provider, model, attem
       throw error;
     }
     await store.observe({ callId, accountId: operation.accountId, observation: {
-      outcome: result?.outcome === 'safety_refusal' ? 'failed' : 'succeeded',
+      outcome: ['safety_refusal', 'provider_error'].includes(result?.outcome) ? 'failed' : 'succeeded',
       metrics: usageMetrics(result?.usage), cost: usageCost(result?.usage), providerRequestId: result?.requestId || null,
       durationMs: Math.max(0, now() - started),
     } });
