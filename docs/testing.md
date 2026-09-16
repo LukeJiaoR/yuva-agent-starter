@@ -40,3 +40,21 @@ CI runs tests, boundary checks, and builds on Node.js 22 and 24. Node.js 24 is t
 ## Before release
 
 Also build both container images and validate `docker compose config`. For provider or auth changes, run a smoke test against the same provider mode and issuer configuration used by the target environment.
+
+## Operations and migrations
+
+`operationStore.test.js` tests the original v1 schema upgrade, concurrent migration,
+account/key races, frozen quotes, media input conflicts, rollback of reservation
+and checksum tampering using isolated PostgreSQL schemas. These tests require an
+accessible test database and fail if unavailable. New database initialization is
+also exercised by the HTTP contract suite.
+
+`npm run db:migrate` applies the immutable v1 baseline followed by ordered files
+in `scripts/migrations/`. Applied files are checksum-verified under a schema-scoped
+advisory lock. Legacy v1 installs are adopted without re-running their baseline.
+Do not edit applied files: add the next numbered migration. Application rollback
+requires a schema-compatible release; migrations are not automatically reversed.
+
+The operation store is injected via the billing adapter in the next phase; this
+phase does not fabricate quotes for historical requests. Failed reservation creates
+no runnable operation. An accepted operation retains its original quote on retry.
