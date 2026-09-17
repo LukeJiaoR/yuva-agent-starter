@@ -57,6 +57,10 @@ recovery coordination only. It is not a production media executor, callback serv
 object store or live image/video integration. Those completion criteria remain in
 Epic #14. Text stream execution does not require a background queue. No production
 migration, consumer upgrade or paid model/payment request belongs to this gate.
+Its product input boundary strips access URLs while preserving asset ID/version
+and specifications; renewed URLs replay, but changed versions/specifications
+conflict. Completed generation with unsaved artifacts stays partial and reserved;
+recovery uses the existing job's saved artifacts before settling the frozen fee.
 
 Local acceptance evidence on 2026-09-17, Node 24.14.0 / PostgreSQL: 27 files,
 220 passed, zero skipped; `npm run build` and `npm run ops:verify` passed.

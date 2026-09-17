@@ -158,7 +158,19 @@ describe('Epic #1 cross-module acceptance', () => {
       const quote = quoteFixture(5);
       delete quote.limits.maxInputTokens; delete quote.limits.maxOutputTokens;
       quote.limits.maxImages = 2; quote.limits.maxDurationMs = 1000;
-      const { operation } = await store.reserve({ operation: operationFixture(accountId, randomUUID(), taskType), quote });
+      const requestId = randomUUID();
+      const rawInput = { asset: { id: 'source-asset', version: 'v1', accessUrl: 'https://fixture.invalid/source?signature=first' },
+        specs: taskType === 'image' ? { width: 1024, images: 2 } : { durationMs: 1000 } };
+      // This fixture is the product input boundary: access credentials are excluded from identity.
+      const normalize = (input) => ({ ...operationFixture(accountId, requestId, taskType),
+        input: { assets: [{ id: input.asset.id, version: input.asset.version }], specs: input.specs } });
+      const { operation } = await store.reserve({ operation: normalize(rawInput), quote });
+      expect((await store.reserve({ operation: normalize({ ...rawInput, asset: { ...rawInput.asset,
+        accessUrl: 'https://fixture.invalid/source?signature=renewed' } }), quote })).kind).toBe('existing');
+      await expect(store.reserve({ operation: normalize({ ...rawInput, asset: { ...rawInput.asset, version: 'v2' } }), quote }))
+        .rejects.toMatchObject({ code: 'idempotency_conflict' });
+      await expect(store.reserve({ operation: normalize({ ...rawInput, specs: taskType === 'image' ? { width: 2048, images: 2 } : { durationMs: 2000 } }), quote }))
+        .rejects.toMatchObject({ code: 'idempotency_conflict' });
       const identity = { operationId: operation.id, accountId };
       const usage = createUsageStore({ db });
       const callId = randomUUID(), jobId = randomUUID();
@@ -174,10 +186,10 @@ describe('Epic #1 cross-module acceptance', () => {
       expect(() => validateFulfillment({ ...fulfillment, artifacts: [{ ...fulfillment.artifacts[0], storageKey: 'https://fixture.invalid/result?signature=expired' }] }, accountId))
         .toThrow('unstable_artifact_reference');
       const settlement = createOperationSettlementStore({ db });
-      let completed = false;
+      let completed = false, saved = false;
       const inspect = vi.fn(async ({ calls }) => {
         expect(calls[0].providerJobId).toBe(jobId);
-        return completed ? { status: 'completed', fulfillment, observations: [{ callId, observation: {
+        return completed ? { status: 'completed', fulfillment: saved ? fulfillment : { ...fulfillment, status: 'partial', artifacts: [] }, observations: [{ callId, observation: {
           outcome: 'succeeded', externalStatus: 'completed', providerJobId: jobId, metrics: metric } }] } : { status: 'running' };
       });
       const runner = () => createRecoveryRunner({ recoveryStore: createOperationRecoveryStore({ db }), settlementStore: settlement,
@@ -187,6 +199,10 @@ describe('Epic #1 cross-module acceptance', () => {
       expect((await runner().run({ dryRun: false, operationId: operation.id })).outcomes[0].action).toBe('deferred');
       expect(await getCreditBalance({ db, userId: accountId })).toMatchObject({ available: 15, reserved: 5 });
       completed = true; await expire();
+      expect((await runner().run({ dryRun: false, operationId: operation.id })).outcomes[0].action).toBe('deferred');
+      expect((await settlement.read(identity)).fulfillment.status).toBe('partial');
+      expect(await getCreditBalance({ db, userId: accountId })).toMatchObject({ available: 15, reserved: 5 });
+      saved = true; await expire();
       const outputs = await Promise.all([runner().run({ dryRun: false, operationId: operation.id }), runner().run({ dryRun: false, operationId: operation.id })]);
       expect(outputs.flatMap((result) => result.outcomes).filter((result) => result.action === 'settled')).toHaveLength(1);
       const state = await settlement.read(identity);
