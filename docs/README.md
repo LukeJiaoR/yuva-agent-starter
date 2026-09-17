@@ -36,3 +36,5 @@ Runtime configuration, service lifecycle and backup/restore: [Operations](mainte
 Durable usage and provenance: [Usage](architecture/usage.md).
 
 Frozen execution constraints: [Execution budget](architecture/execution-budget.md).
+
+Exact user token rates: [Token pricing](architecture/token-pricing.md).
