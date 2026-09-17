@@ -77,13 +77,17 @@ export function createRecoveryRunner({ recoveryStore, settlementStore, usageStor
           outcome = { operationId: claimed.id, action: terminal(state.status) ? state.status : 'deferred',
             reason: state.decision?.reason || state.operation.reconciliationReason || null };
         } catch (error) {
-          outcome = { operationId: claimed.id, action: 'deferred', reason: /^[a-z_]{1,80}$/u.test(error.code || '') ? error.code : 'recovery_failed' };
+          outcome = { operationId: claimed.id, action: 'deferred', failed: true,
+            reason: /^[a-z_]{1,80}$/u.test(error.code || '') ? error.code : 'recovery_failed' };
         } finally { clearInterval(timer); await heartbeat; }
         try { await recoveryStore.finish({ ...owned, action: outcome.action, reason: outcome.reason }); }
-        catch { outcome = { operationId: claimed.id, action: 'deferred', reason: 'execution_lease_lost' }; }
+        catch { outcome = { operationId: claimed.id, action: 'deferred', failed: true, reason: 'execution_lease_lost' }; }
         outcomes.push(outcome);
       }
-      return { dryRun, outcomes, metrics: await recoveryStore.metrics() };
+      return { dryRun, outcomes, counts: {
+        released: dryRun ? 0 : outcomes.filter((outcome) => outcome.action === 'released').length,
+        reconciliationFailures: outcomes.filter((outcome) => outcome.failed === true).length,
+      }, metrics: await recoveryStore.metrics() };
     },
   };
 }

@@ -1,6 +1,6 @@
 # Pricing, operations and settlement contract
 
-Status: version 1 contract; implementation tracked by Epic #1.
+Status: version 1 contract; implementation and acceptance tracked by Epic #1.
 
 ## Authority and boundaries
 
@@ -67,7 +67,7 @@ Transaction rollback is distinct from unknown COMMIT acknowledgment. Unknown
 outcomes require database reconciliation. A worker lease expires ownership, not
 an external provider job. Recovery must fence old workers, inspect existing jobs,
 and never blindly resubmit a possibly accepted paid generation. Financial recovery
-belongs to #13; actual media execution and storage belong to #14.
+is implemented by #13; actual media execution and storage belong to #14.
 
 ## Observed legacy behavior and migration
 
@@ -113,11 +113,11 @@ COMMIT transport failure is explicitly unknown; server-reported rollback differs
 The adapter marks nonterminal operations for reconciliation, or observes an already
 committed terminal result. A retry can settle the durable candidate without model
 execution. Recovery worker leases/fencing and operational reconciliation commands
-remain #13; policy/input limits are enforced separately by #10/#12.
+are implemented by #13 (see [Recovery](recovery.md)); policy/input limits are enforced separately by #10/#12.
 
-The first phase adds validators and characterization tests, preserving the old
-billingPort API. Later phases add stores, policies, budgets and recovery, then
-switch application composition. Unsupported task/mode is rejected before credits
+Validators and characterization tests preserve the old billingPort API. Stores,
+policies, budgets and recovery are connected through application composition.
+Unsupported task/mode is rejected before credits
 or provider calls. Text remains realtime. Media contract fixtures establish
 extensibility, not a working image/video provider or storage implementation.
 
@@ -125,5 +125,5 @@ extensibility, not a working image/video provider or storage implementation.
 
 `npm run check` runs validators, existing route behavior, real PostgreSQL ledger
 boundaries and production build. Set TEST_DATABASE_URL explicitly for database
-checks; CI must fail rather than skip if it is unavailable. Subsequent phases add
-fault injection and upgrade coverage alongside each implementation.
+checks; CI fails rather than skips if it is unavailable. [Testing](../testing.md)
+maps fault injection and upgrade acceptance to executable test assertions.

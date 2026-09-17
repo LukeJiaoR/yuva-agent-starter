@@ -55,6 +55,11 @@ claim is audited. JSON output contains operation IDs, bounded action/reason code
 pending count, oldest age, expired leases and manual count. It excludes prompts,
 outputs, credentials and provider error payloads. Inspect `ai_recovery_events`
 for attempts and outcomes using a tenant-authorized operational connection.
+`counts.released` and `counts.reconciliationFailures` describe this invocation.
+Dry-run releases count as zero. Expected pending/unknown/running decisions are
+not failures; thrown query/settlement errors or lost execution ownership are.
+Failed outcomes carry `failed: true` and a bounded reason code, never the upstream
+error message. Persistent backlog metrics remain independent of these run counts.
 
 The CLI resolves fixed/1 and token/1 implementations; both read the stored quote's
 terms rather than current prices. Custom versions require an application runner

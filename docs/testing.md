@@ -12,6 +12,65 @@ The gate runs:
 2. Boundary validation preventing app/domain imports from reusable packages.
 3. Production builds for workspaces that define them.
 
+## Epic #1 acceptance gate
+
+```bash
+TEST_DATABASE_URL=postgresql://user:password@localhost:5432/test_database npm run test:acceptance
+npm run build
+npm run ops:verify
+```
+
+`test:acceptance` invokes the existing `npm test` (including boundary validation),
+reads Vitest's structured report and requires all 13 acceptance suites to contain
+passed assertions. Any failed or skipped test, absent suite, missing report or
+missing explicit database URL fails the command. CI uses this command on Node 22
+and 24 with its PostgreSQL 16 service; Node 24 also builds both portable containers.
+The command uses a temporary report directory and removes it afterward.
+
+The acceptance matrix below names executable assertions. All provider responses,
+costs and artifacts are local deterministic fixtures; provider-sourced test metrics
+simulate an adapter response and do not claim a real paid provider measurement.
+
+| Requirement | Automated evidence |
+| --- | --- |
+| Default charge 2; insufficient funds never call upstream | `httpContract.test.js`: `charges the default operation exactly 2 credits, then replays without a new call`; `chatStream.test.js`: `rejects unauthenticated and insufficient-credit requests before external calls` |
+| Same mechanism for fixed/token products, explicit selection | `productComposition.test.js`: default/explicit configuration; `product-examples.test.js`: both runnable examples settle/replay/clean up; `chatStream.test.js`: explicit token configuration |
+| Multiple calls/retry retain costs, one bill | `epicAcceptance.test.js`: `%s %s product retains all retry cost facts and settles one frozen bill` (fixed/token, stream/sync); three call records, exact summed cost, failed attempt excluded from token bill, one ledger charge |
+| Frozen token rates, scope, aggregation and one rounding | `tokenPricing.test.js`: `aggregates before rounding once`, `excludes failed internal attempts`, frozen rates and unused reservation tests |
+| Expired grant remainder is not restored as spendable credits | `epicAcceptance.test.js`: `does not restore expired membership remainder when actual charge is below reservation`; reserve 5, charge 2, expire remaining 3, replay makes no new charge |
+| Concurrent same-key identity, different-input conflict, tenant isolation | `operationStore.test.js`: concurrent retry/frozen identity; `chatStream.test.js`: concurrent 202/replay/conflict; `fixedPricing.test.js`: foreign account/reservation/artifact rejection |
+| Restart/config change retains accepted quote | `fixedPricing.test.js`: persisted terms/tampered quote; `recoveryRunner.test.js`: token usage recovery after process restart with changed configured rates |
+| Missing, zero, synthetic, estimated and provider sources stay distinct | `usageStore.test.js`: source history, missing versus zero, unlabeled data rejection; `tokenPricing.test.js`: missing/synthetic defer and frozen estimate basis |
+| Budget blocks subsequent calls; invalid authorization cannot execute or overcharge | `executionBudget.test.js`: aggregate holds, context/model/retry checks and concurrent durable starts; `fixedPricing.test.js`: invalid/unauthorized decision rejection; `operationStore.test.js`: expired/unsupported preflight |
+| Confirmed failure/cancellation, partial fulfillment and zero success | `recoveryRunner.test.js`: confirmed external failure and cancellation/completion history; `executionBudget.test.js`: local cancellation remains unknown; `reliableSettlement.test.js`: partial defer and text/image/video no-charge replay |
+| Crash after reservation, generation and durable result | `epicAcceptance.test.js`: real child-process SIGKILL at `reserved`, `generated`, `ready`; release only when no call started, otherwise recover original result without another invocation |
+| Result persistence rollback preserves candidate | `reliableSettlement.test.js`: durable candidate after projection rollback; `fixedPricing.test.js`: result persistence failure rolls back charge; `recoveryRunner.test.js`: concurrent restart recovery of candidate |
+| Real COMMIT succeeds but ACK is lost; rollback differs | `reliableSettlement.test.js`: `distinguishes unknown COMMIT acknowledgment (committed=%s) from known rollback`; committed branch executes actual PostgreSQL COMMIT before injecting transport error, then verifies one charge |
+| Disconnect after settlement preserves charged result | `chatStream.test.js`: `replays the durable result after post-settlement SSE failure without invoking the model again` |
+| Concurrent workers, expired lease, replacement and late observations | `recoveryLease.test.js`: concurrent claim and stale executor/worker fencing; `recoveryRunner.test.js`: takeover during query, active provider deferral and immutable terminal bill after late usage |
+| Safe recovery statistics distinguish failures from ordinary pending | `recoveryRunner.test.js`: dry-run/release/running counters; `counts failed reconciliation without exposing the provider payload or releasing funds` |
+| New schema matches upgraded schema; financial history unchanged | `epicAcceptance.test.js`: legacy settled history snapshots compare users, accounts, grants, requests, allocations and transactions; new/upgraded column definitions match; historical HTTP replay calls no model. `operationStore.test.js`: concurrent migration/checksum checks |
+| Media contract recovery shares ledger, requires no token/SSE/text field | `epicAcceptance.test.js`: image/video async fixture unknown submission, external running, concurrent completion recovery, duplicate callbacks and stable artifact replay; same fixed policy and one charge. Sync/stream products above use the same billing adapter |
+| Ephemeral signed URL is not durable delivery evidence | `operationContract.test.js`: foreign/ephemeral artifact rejection; media acceptance validates stable account-owned storage keys and rejects expired signed URL references |
+| Unsupported media rejected before reservation or call | `httpContract.test.js`: `releases failed validation and refuses unsupported media before provider or reservation` |
+
+The async media fixture's submit/query/complete sequence validates contracts and
+recovery coordination only. It is not a production media executor, callback server,
+object store or live image/video integration. Those completion criteria remain in
+Epic #14. Text stream execution does not require a background queue. No production
+migration, consumer upgrade or paid model/payment request belongs to this gate.
+Its product input boundary strips access URLs while preserving asset ID/version
+and specifications; renewed URLs replay, but changed versions/specifications
+conflict. Completed generation with unsaved artifacts stays partial and reserved;
+recovery uses the existing job's saved artifacts before settling the frozen fee.
+
+Local acceptance evidence on 2026-09-17, Node 24.14.0 / PostgreSQL: 27 files,
+222 passed, zero skipped; `npm run build` and `npm run ops:verify` passed.
+Negative checks: invoking `test:acceptance` without `TEST_DATABASE_URL` failed
+immediately; running `httpContract.test.js` with an explicit unreachable loopback
+database failed its setup instead of returning success. The PR's Node 22/24 CI
+must independently pass this same gate before merge.
+
 ## PostgreSQL-backed HTTP contracts
 
 `starter-app/tests/httpContract.test.js` applies the real schema to an isolated schema, starts the actual Express app on an ephemeral port, and verifies probes, headers, safe parsing errors, auth provisioning, admin audit lifecycle, and that rejected model output is not streamed.

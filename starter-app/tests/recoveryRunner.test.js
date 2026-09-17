@@ -34,6 +34,7 @@ describe('operation recovery runner', () => {
     const inspect = vi.fn();
     const preview = await runner(inspect).run({ operationId: operation.id });
     expect(preview.outcomes[0]).toMatchObject({ dryRun: true, action: 'defer' });
+    expect(preview.counts).toEqual({ released: 0, reconciliationFailures: 0 });
     expect(inspect).not.toHaveBeenCalled();
     expect((await settlement.read(identity())).operation.executionEpoch).toBe(0);
     expect((await getCreditBalance({ db, userId: accountId })).reserved).toBe(2);
@@ -42,6 +43,7 @@ describe('operation recovery runner', () => {
     await expire();
     const output = await runner().run({ dryRun: false, operationId: operation.id });
     expect(output.outcomes[0].action).toBe('released');
+    expect(output.counts).toEqual({ released: 1, reconciliationFailures: 0 });
     expect(await getCreditBalance({ db, userId: accountId })).toMatchObject({ available: 10, reserved: 0 });
   });
   it('retains funds when the lease expires but the provider is still running', async () => {
@@ -49,6 +51,7 @@ describe('operation recovery runner', () => {
     const inspect = vi.fn(async () => ({ status: 'running' }));
     const output = await runner(inspect).run({ dryRun: false, operationId: operation.id });
     expect(output.outcomes[0].action).toBe('deferred');
+    expect(output.counts).toEqual({ released: 0, reconciliationFailures: 0 });
     expect(inspect).toHaveBeenCalledTimes(1);
     expect((await settlement.read(identity())).status).toBe('reconciliation_required');
     expect((await getCreditBalance({ db, userId: accountId })).reserved).toBe(2);
@@ -63,6 +66,15 @@ describe('operation recovery runner', () => {
     expect(await getCreditBalance({ db, userId: accountId })).toMatchObject({ available: 8, reserved: 0 });
     expect((await runner(inspect).run({ dryRun: false, operationId: operation.id })).outcomes).toHaveLength(0);
     expect(inspect).toHaveBeenCalledTimes(1);
+  });
+  it('counts failed reconciliation without exposing the provider payload or releasing funds', async () => {
+    await start(); await expire();
+    const output = await runner(async () => { throw new Error('secret upstream payload'); })
+      .run({ dryRun: false, operationId: operation.id });
+    expect(output.counts).toEqual({ released: 0, reconciliationFailures: 1 });
+    expect(output.outcomes[0]).toMatchObject({ action: 'deferred', failed: true, reason: 'recovery_failed' });
+    expect(JSON.stringify(output)).not.toContain('secret upstream payload');
+    expect((await getCreditBalance({ db, userId: accountId })).reserved).toBe(2);
   });
   it('settles a durable ready candidate after restart without querying or generating again', async () => {
     await settlement.stage({ ...identity(), fulfillment: result() }); await expire();
