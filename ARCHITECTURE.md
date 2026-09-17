@@ -60,7 +60,7 @@ Host development uses Vite on `5173`, Express on `3000`, and PostgreSQL on `5432
 ## Production boundaries
 
 - The local `mock` provider is rejected in production.
-- `ALLOW_DEV_GUEST_AUTH` must be false in production.
+- `ALLOW_DEV_GUEST` must be false in production.
 - Production must provide explicit allowed frontend origins and real provider/auth secrets.
 - Run database migration before serving traffic.
 - `/health` is liveness only; `/ready` verifies database connectivity.

@@ -1,0 +1,12 @@
+{
+  "verifiedAt": "2026-09-17T03:22:59.476Z",
+  "fixture": "synthetic ledger and migration schema",
+  "client": "pg_dump (PostgreSQL) 16.14",
+  "tables": 15,
+  "backupBytes": 56783,
+  "restoredContentSha256": "e9e8244575927425c49df937fa2fc7b8407f025e510c6729add48537eb930cc6",
+  "exactDataMatch": true,
+  "migrationRecheck": "passed",
+  "durationMs": 586,
+  "productionEvidence": false
+}

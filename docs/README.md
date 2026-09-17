@@ -30,3 +30,5 @@ Core ownership and extension seams: [Core ownership](architecture/core-ownership
 Core release and upgrade procedure: [Private versioned artifacts](releases.md).
 
 Consumer upgrade evidence and ownership: [Consumer migrations](maintenance/consumer-migration.md).
+
+Runtime configuration, service lifecycle and backup/restore: [Operations](maintenance/operations.md).
