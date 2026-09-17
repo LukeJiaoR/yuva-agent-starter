@@ -23,7 +23,9 @@ export function operationFromRow(row) {
     inputVersion: row.input_version, fingerprint: row.input_fingerprint, quote: row.quote,
     ledgerRequestId: row.ledger_request_id, executionStatus: row.execution_status,
     financialStatus: row.financial_status, fulfillmentStatus: row.fulfillment_status,
-    fulfillment: row.fulfillment, decision: row.decision, reconciliationReason: row.reconciliation_reason };
+    fulfillment: row.fulfillment, decision: row.decision, reconciliationReason: row.reconciliation_reason,
+    executionEpoch: row.execution_epoch, leaseOwner: row.lease_owner, leaseExpiresAt: row.lease_expires_at,
+    recoveryAttempts: row.recovery_attempts, nextRecoveryAt: row.next_recovery_at, manualReview: row.manual_review };
 }
 export function createOperationStore({ db, capabilities, now = () => new Date() }) {
   async function find({ accountId, clientRequestId, operation }, client = db) {
@@ -60,7 +62,9 @@ export function createOperationStore({ db, capabilities, now = () => new Date() 
         [operation.id, operation.accountId, operation.clientRequestId, operation.featureKey, operation.taskType, operation.mode,
           operation.inputVersion, operationFingerprint(operation), JSON.stringify(quote), reservation.request?.id || null,
           reservation.request ? 'reserved' : 'unreserved']);
-        return { ...reservation, operation: operationFromRow(row) };
+        const { rows: [leased] } = await client.query(`UPDATE ai_operations SET lease_expires_at=created_at+
+          ($2::bigint+60000)*interval '1 millisecond' WHERE id=$1 RETURNING *`, [row.id, quote.limits.deadlineMs]);
+        return { ...reservation, operation: operationFromRow(leased) };
       });
     },
   };

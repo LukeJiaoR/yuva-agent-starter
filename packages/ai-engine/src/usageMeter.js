@@ -74,7 +74,7 @@ export function createMeteredProvider({ store, operation, provider, model, attem
   return async (options = {}) => {
     const callId = randomUUID();
     await store.start({ callId, operationId: operation.id, accountId: operation.accountId, attempt, provider,
-      model: options.model ?? model, executionBudget: options.executionBudget });
+      model: options.model ?? model, executionBudget: options.executionBudget, expectedEpoch: operation.executionEpoch ?? 0 });
     const started = now();
     const observe = async (result, outcome, failureCode = null) => {
       try {

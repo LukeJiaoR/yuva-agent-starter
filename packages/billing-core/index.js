@@ -14,3 +14,4 @@ export * from './src/fixedOperationPricing.js';
 export * from './src/operationBillingPort.js';
 export * from './src/operationSettlement.js';
 export * from './src/tokenPricing.js';
+export * from './src/operationRecovery.js';

@@ -12,9 +12,10 @@ export function createOperationBillingPort({ db, operationStore, policy, executi
     invariant(operation.id === reservation.operation?.id
       && operation.ledgerRequestId === (reservation.reservationId ?? reservation.request?.id ?? null), 'reservation_mismatch', 409);
     validateQuote(operation.quote);
+    invariant(operation.executionEpoch === (reservation.operation.executionEpoch ?? 0), 'execution_fenced', 409);
     return operation;
   }
-  const identity = (operation) => ({ operationId: operation.id, accountId: operation.accountId });
+  const identity = (operation) => ({ operationId: operation.id, accountId: operation.accountId, expectedEpoch: operation.executionEpoch });
   const terminal = (state) => ['settled', 'no_charge', 'released'].includes(state.status);
   const mark = async (operation, reason) => settlementStore.markReconciliation({ ...identity(operation), reason });
   return {

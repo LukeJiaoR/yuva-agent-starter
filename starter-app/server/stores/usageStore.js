@@ -20,13 +20,14 @@ function sameCost(a, b) {
 }
 export function createUsageStore({ db }) {
   return {
-    async start({ callId, operationId, accountId, attempt, provider, model, requestedMetrics = {}, executionBudget }) {
+    async start({ callId, operationId, accountId, attempt, provider, model, requestedMetrics = {}, executionBudget, expectedEpoch = 0 }) {
       invariant(Number.isSafeInteger(attempt) && attempt > 0);
       invariant(bounded(provider, 80) && bounded(model, 160));
       const requested = validateMetrics(requestedMetrics);
       return withCreditTransaction(db, async (client) => {
         const { rows: [operation] } = await client.query('SELECT * FROM ai_operations WHERE id=$1 AND account_id=$2 FOR UPDATE', [operationId, accountId]);
         invariant(operation, 'operation_not_found', 404);
+        invariant(operation.execution_epoch === expectedEpoch, 'execution_fenced', 409);
         const limits = operation.quote.limits;
         if (limits.paths || executionBudget) {
           invariant(executionBudget && limits.paths, 'execution_authorization_missing', 409);

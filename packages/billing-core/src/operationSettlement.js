@@ -21,13 +21,18 @@ export function createOperationSettlementStore({ db }) {
       const { rows: [row] } = await client.query('SELECT * FROM ai_operations WHERE id=$1 AND account_id=$2 FOR UPDATE', [identity.operationId, identity.accountId]);
       invariant(row, 'operation_not_found', 404);
       if (terminal(row.financial_status)) return result(row, true);
+      invariant(row.execution_epoch === (identity.expectedEpoch ?? 0), 'execution_fenced', 409);
+      if (row.execution_epoch > 0) {
+        const { rows: [clock] } = await client.query('SELECT clock_timestamp() AS now');
+        invariant(new Date(row.lease_expires_at) > new Date(clock.now), 'execution_lease_lost', 409);
+      }
       return callback(client, row);
     }, { trackCommitOutcome: true });
   }
   return {
     read,
-    async stage({ operationId, accountId, fulfillment }) {
-      return transact({ operationId, accountId }, async (client, row) => {
+    async stage({ operationId, accountId, fulfillment, expectedEpoch = 0 }) {
+      return transact({ operationId, accountId, expectedEpoch }, async (client, row) => {
         validateFulfillment(fulfillment, accountId);
         invariant(fulfillment.ruleVersion === row.quote.fulfillmentVersion, 'fulfillment_version_mismatch', 409);
         if (row.fulfillment_status === 'ready') invariant(canonicalJson(row.fulfillment) === canonicalJson(fulfillment), 'result_identity_conflict', 409);
@@ -37,16 +42,16 @@ export function createOperationSettlementStore({ db }) {
         return result(updated);
       });
     },
-    async markReconciliation({ operationId, accountId, reason = 'reconciliation_required' }) {
-      return transact({ operationId, accountId }, async (client, row) => {
+    async markReconciliation({ operationId, accountId, reason = 'reconciliation_required', expectedEpoch = 0 }) {
+      return transact({ operationId, accountId, expectedEpoch }, async (client, row) => {
         const { rows: [updated] } = await client.query(`UPDATE ai_operations SET financial_status='reconciliation_required',
           reconciliation_reason=$2,execution_status=CASE WHEN execution_status='running' THEN 'submission_unknown' ELSE execution_status END,
           updated_at=NOW() WHERE id=$1 RETURNING *`, [row.id, reason.slice(0, 160)]);
         return result(updated);
       });
     },
-    async apply({ operationId, accountId, decision, fulfillment, persistResult, metadata = {} }) {
-      return transact({ operationId, accountId }, async (client, row) => {
+    async apply({ operationId, accountId, decision, fulfillment, persistResult, metadata = {}, expectedEpoch = 0 }) {
+      return transact({ operationId, accountId, expectedEpoch }, async (client, row) => {
         validateDecision(decision, row.quote);
         validateFulfillment(fulfillment, accountId);
         invariant(fulfillment.ruleVersion === row.quote.fulfillmentVersion, 'fulfillment_version_mismatch', 409);
