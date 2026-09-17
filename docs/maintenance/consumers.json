@@ -1,0 +1,59 @@
+{
+  "formatVersion": 1,
+  "owner": "Repository maintainers",
+  "verifiedAt": "2026-09-17",
+  "release": {
+    "version": "1.1.0",
+    "tag": "core-v1.1.0",
+    "sourceCommit": "d105d8420e3df86c2caebf3ad60faec62fa2a8fe",
+    "manifestIntegrity": "sha256-s9nsGbxa/3arQjU1tePYtqpMPhRoMyFIhmmd5gJ33ws="
+  },
+  "consumers": [
+    {
+      "id": "ziwei",
+      "repository": "LukeJiaoR/ziwei",
+      "pullRequest": "https://github.com/LukeJiaoR/ziwei/pull/594",
+      "corePin": ".core-release.json",
+      "schemaOwner": "ziwei-app/sql",
+      "enabledComponents": [
+        "auth-core",
+        "ai-engine",
+        "billing-core",
+        "context-engine",
+        "admin-core"
+      ],
+      "upgradeOwner": "Ziwei repository maintainers",
+      "validation": {
+        "node": "24.14.0",
+        "backendPassed": 2786,
+        "backendSkipped": 2,
+        "packageExportsPassed": 5,
+        "ciDeployScopePassed": 31
+      },
+      "deployment": "Development deployment succeeded for merged SHA 40693c0b799d921add7375d1e6c49d5a12a5baf9; no production rollout performed"
+    },
+    {
+      "id": "customer-support-example",
+      "kind": "isolated generated consumer",
+      "reproduce": "npm run smoke:consumer -- --bundle <downloaded-core-v1.1.0-directory>",
+      "corePin": ".core-release.json",
+      "schemaOwner": "generated scripts/schema.sql and scripts/migrations",
+      "enabledComponents": [
+        "auth-core",
+        "ai-engine",
+        "billing-core",
+        "context-engine",
+        "admin-core test audit"
+      ],
+      "upgradeOwner": "Starter repository maintainers",
+      "validation": {
+        "node": "24.14.0",
+        "passed": 29,
+        "skipped": 0,
+        "build": "passed",
+        "editableCoreSource": false
+      },
+      "deployment": "Local test only"
+    }
+  ]
+}

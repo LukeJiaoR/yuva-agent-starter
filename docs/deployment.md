@@ -20,7 +20,7 @@ npm run db:check
 ## Required production decisions
 
 - Set `NODE_ENV=production`.
-- Set `ALLOW_DEV_GUEST_AUTH=false`.
+- Set `ALLOW_DEV_GUEST=false`.
 - Use a real `AI_PROVIDER`; production rejects `mock`.
 - Provide a strong PostgreSQL connection with TLS as required by the host.
 - Set exact comma-separated `CORS_ORIGIN` values. Do not use `*` with authenticated traffic.
@@ -54,3 +54,5 @@ The included nginx image serves the Vite build and proxies `/api`, `/health`, an
 3. Complete a valid authenticated stream.
 4. Verify one credit settlement and an audit/log correlation by request ID.
 5. Force a provider failure and verify credit release plus a safe public error.
+
+For the parameterized production template, metadata-only inspection and verified backup/restore drill, see [Operations maintenance](maintenance/operations.md).

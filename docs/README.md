@@ -21,6 +21,16 @@ The system shape and package boundaries are documented in [Architecture](../ARCH
 
 ## Source of truth
 
-Executable code, `.env.example`, `scripts/schema.sql`, and CI are authoritative. If a guide differs from the implementation, treat that as a documentation bug and update both in the same change.
+Executable code, `.env.example`, `scripts/schema.sql`, `scripts/migrations/`, release manifests, and CI are authoritative. If a guide differs from the implementation, treat that as a documentation bug and update both in the same change.
 
 Pricing and lifecycle contracts: [Operations, pricing and settlement](architecture/pricing-and-settlement.md).
+
+Core ownership and extension seams: [Core ownership](architecture/core-ownership.md).
+
+Core release and upgrade procedure: [Private versioned artifacts](releases.md).
+
+Consumer upgrade evidence and ownership: [Consumer migrations](maintenance/consumer-migration.md).
+
+Runtime configuration, service lifecycle and backup/restore: [Operations](maintenance/operations.md).
+
+Durable usage and provenance: [Usage](architecture/usage.md).

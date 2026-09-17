@@ -7,7 +7,7 @@ import { DomainKnowledgeAdapter } from './domain/adapter.js';
 import { createHealthRoutes } from './routes/health.routes.js';
 import { createAnalyzeRoutes } from './routes/analyze.routes.js';
 import { createChatStreamRoutes } from './routes/chatStream.routes.js';
-import { createOptionalAuth, hardenJsonResponse } from '../../packages/auth-core/index.js';
+import { createOptionalAuth, hardenJsonResponse } from '@yuva/auth-core';
 import { sendPublicError } from './http/errors.js';
 
 dotenv.config();
@@ -17,6 +17,8 @@ export function createServer({
   adapter,
   callAIStream,
   validateOutput,
+  operationStore,
+  usageStore,
   config = {},
 } = {}) {
   const env = config.env || process.env;
@@ -71,6 +73,8 @@ export function createServer({
     adapter: activeAdapter,
     callAIStream,
     validateOutput,
+    operationStore,
+    usageStore,
     env,
   }));
 

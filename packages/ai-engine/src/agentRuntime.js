@@ -76,6 +76,7 @@ export function createAgentRuntime(runtimeDefaults = {}) {
       validationPort = runtimeDefaults.validationPort || {},
       memoryPort = runtimeDefaults.memoryPort || {},
       telemetryPort = runtimeDefaults.telemetryPort || {},
+      usagePort = runtimeDefaults.usagePort || {},
     errorPort = runtimeDefaults.errorPort || {},
   } = options;
     let phase = "preflight";
@@ -84,6 +85,7 @@ export function createAgentRuntime(runtimeDefaults = {}) {
     let settled = false;
     let canonicalRequest = request;
     let providerResult = null;
+    let retryExistingRequest = null;
 
     try {
       // 1. Idempotency & existing request check
@@ -100,7 +102,9 @@ export function createAgentRuntime(runtimeDefaults = {}) {
             body: existing.body,
           };
         }
-        if (existing?.isExisting || existing?.replayed) {
+        if (existing?.disposition === "released_retry") {
+          retryExistingRequest = existing.request || existing;
+        } else if (existing?.isExisting || existing?.replayed) {
           const reqStatus = existing.request?.status || existing.status;
           if (
             reqStatus === "active"
@@ -149,7 +153,14 @@ export function createAgentRuntime(runtimeDefaults = {}) {
       const prepareFn = domainPort.prepare || requestPort.prepare;
       if (typeof prepareFn === "function") {
         phase = "preflight";
-        const prepared = await prepareFn({ request, user, db, env, logger });
+        const prepared = await prepareFn({
+          request,
+          existingRequest: retryExistingRequest,
+          user,
+          db,
+          env,
+          logger,
+        });
         if (prepared?.rejected) {
           return {
             handled: true,
@@ -303,12 +314,12 @@ export function createAgentRuntime(runtimeDefaults = {}) {
         promptPayload = await promptPort.composePrompt({ request: canonicalRequest, reservation, context, budget, user, env });
       }
 
-      // 6. Provider Streaming & Validation-Before-Delivery
+      // 6. Provider streaming and optional server-owned delivery processing
       phase = "generation";
       let accumulatedRawText = "";
       let finalDeliveredText = "";
 
-      // Initialize validation delivery buffer if port provided
+      // Initialize a delivery processor when the product runtime provides one.
       const delivery = typeof validationPort.createDelivery === "function"
         ? await validationPort.createDelivery({
             request: canonicalRequest,
@@ -326,22 +337,36 @@ export function createAgentRuntime(runtimeDefaults = {}) {
       const streamProvider = streamPort.streamProviderText || runtimeDefaults.streamProviderText;
 
       if (typeof streamProvider === "function") {
-        providerResult = await streamProvider({
-          ...promptPayload,
-          request: canonicalRequest,
-          reservation,
-          signal,
-          onText: async (delta) => {
-            accumulatedRawText += delta;
-            if (delivery && typeof delivery.push === "function") {
-              await delivery.push(delta);
-            } else if (!delivery && emitter && typeof streamPort.emitTextDelta === "function") {
-              // Direct emission only when no semantic validation buffer is configured
-              finalDeliveredText += delta;
-              streamPort.emitTextDelta(emitter, delta);
-            }
-          },
-        });
+        try {
+          const invoke = typeof usagePort.invoke === "function"
+            ? (options) => usagePort.invoke({ invoke: streamProvider, options, request: canonicalRequest, reservation, user })
+            : streamProvider;
+          providerResult = await invoke({
+            ...promptPayload,
+            request: canonicalRequest,
+            reservation,
+            signal,
+            onText: async (delta) => {
+              accumulatedRawText += delta;
+              if (delivery && typeof delivery.push === "function") {
+                await delivery.push(delta);
+              } else if (!delivery && emitter && typeof streamPort.emitTextDelta === "function") {
+                // Direct emission when no product-specific delivery processor is configured.
+                finalDeliveredText += delta;
+                streamPort.emitTextDelta(emitter, delta);
+              }
+            },
+          });
+        } catch (error) {
+          try {
+            await delivery?.abort?.({ error, providerResult });
+          } catch (deliveryAbortError) {
+            logger.warn?.("[agent-runtime] delivery abort hook warning", {
+              error: deliveryAbortError?.message,
+            });
+          }
+          throw error;
+        }
       }
 
       let deliveryResult = null;

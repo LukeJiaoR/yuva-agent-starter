@@ -9,7 +9,7 @@ import {
   settleFeatureCredits,
   releaseFeatureCredits,
   getCreditBalance,
-} from '../../packages/billing-core/index.js';
+} from '@yuva/billing-core';
 
 const { Pool } = pg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

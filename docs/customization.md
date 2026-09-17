@@ -43,7 +43,7 @@ Then update labels and input controls in `starter-web/src/main.jsx`. Reuse the C
 
 ## 6. Replace development access
 
-Development guest access is convenient locally but is not production authentication. Configure Clerk JWT verification or implement an adapter using `@yuva/auth-core`, set `ALLOW_DEV_GUEST_AUTH=false`, and test both new-user provisioning and rejected tokens.
+Development guest access is convenient locally but is not production authentication. Configure Clerk JWT verification or implement an adapter using `@yuva/auth-core`, set `ALLOW_DEV_GUEST=false`, and test both new-user provisioning and rejected tokens.
 
 ## 7. Select a provider
 

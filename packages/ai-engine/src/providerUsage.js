@@ -1,7 +1,7 @@
 function nonNegativeInteger(value) {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
-  const integer = Math.floor(parsed);
+  const integer = parsed;
   return Number.isFinite(parsed)
     && parsed >= 0
     && Number.isSafeInteger(integer)
@@ -67,6 +67,10 @@ export function normalizedSdkUsage(usage) {
     reasoningTokens: nonNegativeInteger(usage?.outputTokenDetails?.reasoningTokens),
     toolTokens: nonNegativeInteger(raw.tool_tokens),
     providerCost: nonNegativeNumber(raw.cost),
+    ...(typeof raw.cost === "string" && /^\d+(?:\.\d{1,12})?$/u.test(raw.cost) && currencyCode(raw.currency) ? {
+      cost: { amount: raw.cost.replace(".", "").replace(/^0+(?=\d)/u, ""),
+        scale: (raw.cost.split(".")[1] || "").length, currency: currencyCode(raw.currency), source: "provider", status: "observed" },
+    } : {}),
     providerSurcharge: nonNegativeNumber(raw.surcharge),
     currency: currencyCode(raw.currency),
   };
@@ -95,11 +99,13 @@ export function normalizeSdkProviderResult(
   const requestId = typeof extractRequestId === "function"
     ? extractRequestId(data)
     : data.response?.id;
+  const providerObservedModel = boundedString(data.response?.modelId, 160);
 
   return {
     text: String(data.text || ""),
     provider: boundedString(provider, 80),
-    model: boundedString(data.response?.modelId || model, 160),
+    model: providerObservedModel || boundedString(model, 160),
+    modelIdentitySource: providerObservedModel ? "provider_response" : "requested_fallback",
     requestId: boundedString(requestId, 255),
     finishReason,
     outcome: safetyRefusal
@@ -125,6 +131,7 @@ export function createSyntheticProviderResult({
     text: String(text || ""),
     provider,
     model,
+    modelIdentitySource: "synthetic_explicit",
     requestId,
     finishReason,
     outcome,

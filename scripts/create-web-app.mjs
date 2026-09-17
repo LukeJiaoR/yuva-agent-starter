@@ -2,6 +2,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
+import os from 'node:os';
+import { packCore, verifyBundle, installBundle, run } from './release/artifacts.mjs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -19,6 +21,8 @@ Options:
   --description <text>         Short product description
   --target <directory>         Output path, defaults to a sibling directory
   --install                    Run npm ci in the generated project
+  --bundle <directory>         Use a verified release bundle
+  --development                Allow an unreleased development bundle
   --help                       Show this help
 
 Example:
@@ -30,6 +34,7 @@ function parseArgs(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--install') options.install = true;
+    else if (arg === '--development') options.development = true;
     else if (arg === '--help' || arg === '-h') options.help = true;
     else if (arg.startsWith('--')) {
       const key = arg.slice(2).replace(/-([a-z])/gu, (_, letter) => letter.toUpperCase());
@@ -78,12 +83,15 @@ function copyFilter(source) {
   const relative = path.relative(sourceRoot, source);
   if (!relative) return true;
   const segments = relative.split(path.sep);
-  return !segments.some((segment) => ['.git', 'node_modules', 'dist', 'coverage', '.env'].includes(segment))
-    && !relative.endsWith('.log')
-    && relative !== '.DS_Store';
+  if (segments.some((name) => ['.git', 'node_modules', 'dist', 'coverage', 'vendor', 'packages', '.release', '.ai-gh-account'].includes(name))) return false;
+  if (segments.some((name) => name.startsWith('.env') && name !== '.env.example')) return false;
+  if (relative.endsWith('.log') || relative.endsWith('.tgz') || relative.endsWith('.DS_Store')) return false;
+  if (relative.startsWith('scripts/') && (relative.endsWith('.test.js') || relative.endsWith('create-web-app.mjs') || relative.endsWith('release/pack.mjs') || relative.endsWith('release/smoke-consumer.mjs'))) return false;
+  if (relative.startsWith('.github/') && relative !== '.github/workflows' && relative !== '.github/workflows/ci.yml') return false;
+  return true;
 }
 
-async function writeGeneratedConfig(target, options) {
+async function writeGeneratedConfig(target, options, bundle, release) {
   const appSlug = slug(options.name);
   const domainKey = slug(options.domainKey || options.name);
   const domainName = options.domain || displayName(domainKey);
@@ -92,6 +100,10 @@ async function writeGeneratedConfig(target, options) {
   const rootPackagePath = path.join(target, 'package.json');
   const rootPackage = JSON.parse(await fs.readFile(rootPackagePath, 'utf8'));
   rootPackage.name = appSlug;
+  rootPackage.workspaces = ['starter-app', 'starter-web'];
+  for (const name of ['create', 'release:pack', 'test:packages', 'smoke:consumer']) delete rootPackage.scripts[name];
+  rootPackage.scripts['verify:boundaries'] = 'node scripts/release/verify-consumer.mjs';
+  rootPackage.scripts.test = 'npm run verify:boundaries && vitest run';
   await fs.writeFile(rootPackagePath, `${JSON.stringify(rootPackage, null, 2)}\n`);
 
   const lockPath = path.join(target, 'package-lock.json');
@@ -116,7 +128,13 @@ async function writeGeneratedConfig(target, options) {
     packageName: appSlug,
     domainKey,
     generatedAt: new Date().toISOString(),
+    source: { repository: release.repository, commit: run('git', ['rev-parse', 'HEAD'], sourceRoot), starterVersion: rootPackage.version },
+    core: { version: release.version, tag: release.tag, sourceCommit: release.sourceCommit, packages: release.packages.map(({ name, version, integrity }) => ({ name, version, integrity })) },
+    development: release.development,
   }, null, 2)}\n`);
+  await installBundle({ root: target, bundle, apply: true, allowDevelopment: options.development });
+  await fs.writeFile(path.join(target, 'scripts/verify-boundaries.mjs'), "import './release/verify-consumer.mjs';\n");
+  run('npm', ['install', '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund'], target);
 }
 
 async function main() {
@@ -139,9 +157,16 @@ async function main() {
     throw new Error('Target must be outside the starter repository');
   }
 
-  await ensureEmptyTarget(target);
-  await fs.cp(sourceRoot, target, { recursive: true, filter: copyFilter });
-  await writeGeneratedConfig(target, options);
+  let temporary;
+  try {
+    const bundle = options.bundle ? path.resolve(options.bundle)
+      : (temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'yuva-generator-core-')));
+    if (!options.bundle) await packCore(sourceRoot, bundle, { allowDirty: options.development });
+    const release = await verifyBundle(bundle, { allowDevelopment: options.development });
+    await ensureEmptyTarget(target);
+    await fs.cp(sourceRoot, target, { recursive: true, filter: copyFilter });
+    await writeGeneratedConfig(target, options, bundle, release);
+  } finally { if (temporary) await fs.rm(temporary, { recursive: true, force: true }); }
 
   if (options.install) {
     const result = spawnSync('npm', ['ci'], { cwd: target, stdio: 'inherit' });

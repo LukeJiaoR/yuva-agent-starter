@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
 import { createServer } from '../server/index.js';
 
 function getRouteHandler(app, method, path) {
@@ -31,442 +31,127 @@ function mockResponse() {
   };
 }
 
-describe('Chat Stream Route & Agent Runtime Integration (Contract Verification)', () => {
-  const USER_ID = '11111111-1111-4111-8111-111111111111';
-  const OTHER_USER_ID = '22222222-2222-4222-8222-222222222222';
-  const GRANT_ID = '33333333-3333-4333-8333-333333333333';
-  const REQUEST_ID = 'req-contract-test-1';
+import { randomUUID } from 'node:crypto';
+import { isolatedDatabase } from './helpers/database.js';
+import { grantCredits, reserveFeatureCredits, settleFeatureCredits } from '@yuva/billing-core';
+import { createUsageStore } from '../server/stores/usageStore.js';
 
-  function createMockDb({ availableCredits = 10 } = {}) {
-    const state = {
-      account: { user_id: USER_ID, available_credits: availableCredits, reserved_credits: 0, credit_debt: 0, version: 1 },
-      grants: [{ id: GRANT_ID, user_id: USER_ID, credit_type: 'purchased', status: 'active', remaining_credits: availableCredits, reserved_credits: 0 }],
-      requests: new Map(),
-      conversations: new Map(),
-      messages: [],
-    };
-
-    let nextUsageId = 1;
-    const query = vi.fn(async (sql, params = []) => {
-      const text = String(sql);
-      if (text.includes('FROM messages m') && text.includes('JOIN conversations c')) {
-        const convId = params[0];
-        const userId = params[1];
-        const conv = state.conversations.get(convId);
-        if (!conv || conv.user_id !== userId) {
-          return { rows: [] };
-        }
-        return { rows: state.messages.filter((m) => m.conversation_id === convId) };
-      }
-      if (text.includes('INSERT INTO credit_accounts')) return { rows: [] };
-      if (text.includes('SELECT * FROM credit_accounts WHERE')) return { rows: [state.account] };
-      if (text.includes('FROM credit_usage_requests WHERE user_id = $1 AND client_request_id = $2')) {
-        const req = Array.from(state.requests.values()).find((r) => r.user_id === params[0] && r.client_request_id === params[1]);
-        return { rows: req ? [req] : [] };
-      }
-      if (text.includes('FROM credit_usage_requests WHERE id = $1')) {
-        const req = state.requests.get(params[0]);
-        return { rows: req ? [req] : [] };
-      }
-      if (text.includes('INSERT INTO credit_usage_requests')) {
-        const usageId = `usage-${nextUsageId++}`;
-        const req = {
-          id: usageId,
-          user_id: params[0],
-          feature_key: params[1],
-          client_request_id: params[3],
-          status: 'generating',
-          reserved_credits: params[6],
-          assistant_text: null,
-        };
-        state.requests.set(usageId, req);
-        return { rows: [req] };
-      }
-      if (text.includes('SELECT * FROM credit_grants') && text.includes('FOR UPDATE')) {
-        return { rows: state.grants.filter((g) => g.status === 'active') };
-      }
-      if (text.includes('UPDATE credit_grants')) {
-        return { rows: state.grants };
-      }
-      if (text.includes('INSERT INTO credit_usage_allocations')) return { rows: [] };
-      if (text.includes('UPDATE credit_accounts')) {
-        return { rows: [state.account] };
-      }
-      if (text.includes('INSERT INTO credit_transactions')) return { rows: [{ id: 'tx-1' }] };
-      if (text.includes('FROM credit_usage_allocations a')) {
-        return { rows: [{ id: 'alloc-1', usage_request_id: params[0], grant_id: GRANT_ID, credit_type: 'purchased', reserved_credits: 2, settled_credits: 0 }] };
-      }
-      if (text.includes('UPDATE credit_usage_requests') && (text.includes('status = \'settled\'') || text.includes('assistant_text = $2'))) {
-        const req = state.requests.get(params[0]);
-        if (req) {
-          req.status = 'settled';
-          if (params[1]) req.assistant_text = params[1];
-        }
-        return { rows: req ? [req] : [] };
-      }
-      if (text.includes('UPDATE credit_usage_requests SET status = \'released\'')) {
-        const req = state.requests.get(params[0]);
-        if (req) req.status = 'released';
-        return { rows: req ? [req] : [] };
-      }
-      if (text.includes('INSERT INTO conversations')) {
-        state.conversations.set(params[0], { id: params[0], user_id: params[1] });
-        return { rows: [] };
-      }
-      if (text.includes('INSERT INTO messages')) {
-        state.messages.push({ conversation_id: params[0], role: 'user', content: params[1] });
-        state.messages.push({ conversation_id: params[0], role: 'assistant', content: params[2] });
-        return { rows: [] };
-      }
-      return { rows: [] };
-    });
-
-    return { query, state };
+describe('Chat runtime with durable operations and usage (real PostgreSQL)', () => {
+  let db, close, userId;
+  beforeAll(async () => { ({ db, close } = await isolatedDatabase()); });
+  afterAll(async () => close?.());
+  beforeEach(async () => {
+    userId = randomUUID();
+    await db.query('INSERT INTO users(id) VALUES($1)', [userId]);
+    await grantCredits({ db, userId, credits: 20, creditType: 'purchased', idempotencyKey: randomUUID() });
+  });
+  function route(callAIStream, extra = {}) {
+    return getRouteHandler(createServer({ db, callAIStream, ...extra }), 'POST', '/api/chat/stream');
   }
-
-  it('executes complete AgentRuntime lifecycle: Domain facts -> Token Budget -> Provider stream -> Settle credits -> SSE Done', async () => {
-    const mockDb = createMockDb({ availableCredits: 10 });
-    let receivedPrompts = null;
-
-    const callAIStream = vi.fn(async (options) => {
-      receivedPrompts = options;
-      await options.onText('Deterministic analysis: Valid clause.');
-      return {
-        provider: 'openai',
-        model: 'gpt-4o',
-        finishReason: 'stop',
-        billableTokens: 42,
-      };
-    });
-
-    const app = createServer({ db: mockDb, callAIStream });
-    const handler = getRouteHandler(app, 'POST', '/api/chat/stream');
+  async function send(handler, body = {}, user = { id: userId }) {
     const res = mockResponse();
-
-    await handler(
-      {
-        user: { id: USER_ID, email: 'user@example.com' },
-        body: {
-          question: 'Verify this contract agreement',
-          requestId: REQUEST_ID,
-          subject: 'Non-Disclosure Agreement',
-          parameters: { jurisdiction: 'US-NY' },
-        },
-      },
-      res,
-      vi.fn(),
-    );
-
-    // 1. Assert Provider received correctly formatted messages & system prompt
-    expect(callAIStream).toHaveBeenCalledTimes(1);
-    expect(receivedPrompts.systemPrompt).toContain('Non-Disclosure Agreement');
-    expect(receivedPrompts.messages).toEqual([
-      { role: 'user', content: 'Verify this contract agreement' },
-    ]);
-
-    // 2. Assert SSE stream events emitted in strict order
-    expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/event-stream; charset=utf-8');
-    const fullStream = res.events.join('');
-    expect(fullStream).toContain('event: start\n');
-    expect(fullStream).toContain('event: text_delta\n');
-    expect(fullStream).toContain('Deterministic analysis: Valid clause.');
-    expect(fullStream).toContain('event: done\n');
-    expect(res.end).toHaveBeenCalled();
-  });
-
-  it('returns HTTP 202 for in-flight duplicate requests (no replay), and replays only after settlement', async () => {
-    const mockDb = createMockDb({ availableCredits: 10 });
-    const INFLIGHT_ID = 'req-inflight-test';
-
-    // Step 1: Pre-populate an in-flight request with status = 'generating'
-    mockDb.state.requests.set('usage-inflight-1', {
-      id: 'usage-inflight-1',
-      user_id: USER_ID,
-      client_request_id: INFLIGHT_ID,
-      status: 'generating',
-      reserved_credits: 2,
-      assistant_text: null,
-      conversation_id: 'conv-inflight',
+    await handler({ user, body: { question: 'Hello', requestId: randomUUID(), ...body } }, res, vi.fn());
+    return res;
+  }
+  const facts = (requestId) => db.query(`SELECT c.* FROM ai_provider_calls c JOIN ai_operations o ON o.id=c.operation_id
+    WHERE o.account_id=$1 AND o.client_request_id=$2`, [userId, requestId]);
+  it('persists before external execution and records actual zero and returned model before settling 2 credits', async () => {
+    const provider = vi.fn(async ({ onText, callId }) => {
+      expect((await db.query('SELECT outcome FROM ai_provider_calls WHERE id=$1', [callId])).rows[0].outcome).toBe('started');
+      await onText('Durable response');
+      return { model: 'actual-model', modelIdentitySource: 'provider_response', requestId: 'upstream-1',
+        usage: { source: 'provider', inputTokens: 0, outputTokens: 0, totalTokens: 0 } };
     });
-
-    const callAIStream = vi.fn();
-    const app = createServer({ db: mockDb, callAIStream });
-    const handler = getRouteHandler(app, 'POST', '/api/chat/stream');
-
-    // Step 2: Duplicate request arrives while generating
-    const resB = mockResponse();
-    await handler(
-      {
-        user: { id: USER_ID },
-        body: { question: 'Duplicate question', requestId: INFLIGHT_ID },
-      },
-      resB,
-      vi.fn(),
-    );
-
-    // Must return HTTP 202 JSON, zero provider calls, zero SSE stream events
-    expect(resB.status).toHaveBeenCalledWith(202);
-    expect(resB.json).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: 'generating',
-        request_id: INFLIGHT_ID,
-      }),
-    );
-    expect(callAIStream).not.toHaveBeenCalled();
-    expect(resB.events.length).toBe(0);
-
-    // Step 3: Request finishes and settles
-    const inflightReq = mockDb.state.requests.get('usage-inflight-1');
-    inflightReq.status = 'settled';
-    inflightReq.assistant_text = 'Authoritative completed response from Request A.';
-
-    // Step 4: Subsequent duplicate request arrives after settlement -> Replays via SSE
-    const resC = mockResponse();
-    await handler(
-      {
-        user: { id: USER_ID },
-        body: { question: 'Duplicate question', requestId: INFLIGHT_ID },
-      },
-      resC,
-      vi.fn(),
-    );
-
-    expect(callAIStream).not.toHaveBeenCalled();
-    expect(resC.setHeader).toHaveBeenCalledWith('Content-Type', 'text/event-stream; charset=utf-8');
-    const fullStream = resC.events.join('');
-    expect(fullStream).toContain('event: start\n');
-    expect(fullStream).toContain('event: text_delta\n');
-    expect(fullStream).toContain('Authoritative completed response from Request A.');
-    expect(fullStream).toContain('event: done\n');
-    expect(resC.end).toHaveBeenCalled();
+    const response = await send(route(provider), { requestId: 'metered' });
+    expect(response.events.join('')).toContain('event: done');
+    const call = (await facts('metered')).rows[0];
+    expect(call.metrics.outputTokens).toEqual({ value: 0, unit: 'token', source: 'provider' });
+    expect(call.observed_model).toBe('actual-model');
+    expect(call.provider_request_id).toBe('upstream-1');
+    const { rows: [ledger] } = await db.query('SELECT * FROM credit_usage_requests WHERE user_id=$1', [userId]);
+    expect(ledger.settled_credits).toBe(2);
+    expect(ledger.billable_tokens).toBe(0);
   });
-
-  it('emits SSE terminal error event when provider fails and does not emit done event', async () => {
-    const mockDb = createMockDb({ availableCredits: 10 });
-    const callAIStream = vi.fn(async () => {
-      const err = new Error('Provider model overloaded');
-      err.code = 'provider_overloaded';
-      throw err;
-    });
-
-    const app = createServer({ db: mockDb, callAIStream });
-    const handler = getRouteHandler(app, 'POST', '/api/chat/stream');
-    const res = mockResponse();
-
-    await handler(
-      {
-        user: { id: USER_ID },
-        body: { question: 'Query that will fail', requestId: 'req-fail-stream' },
-      },
-      res,
-      vi.fn(),
-    );
-
-    expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/event-stream; charset=utf-8');
-    const fullStream = res.events.join('');
-    expect(fullStream).toContain('event: start\n');
-    expect(fullStream).toContain('event: error\n');
-    expect(fullStream).toContain('provider_overloaded');
-    expect(fullStream).not.toContain('event: done\n');
-    expect(res.end).toHaveBeenCalled();
+  it('keeps missing usage unknown, including the legacy display column', async () => {
+    const response = await send(route(async ({ onText }) => { await onText('No usage in response'); return {}; }), { requestId: 'missing' });
+    expect(response.events.join('')).toContain('event: done');
+    expect((await facts('missing')).rows[0].metrics.inputTokens.value).toBeNull();
+    expect((await db.query('SELECT billable_tokens FROM credit_usage_requests WHERE user_id=$1', [userId])).rows[0].billable_tokens).toBeNull();
   });
-
-  it('enforces strict tenant isolation on conversation history', async () => {
-    const mockDb = createMockDb({ availableCredits: 10 });
-    const CONV_ID = '32693cb4-e466-46ce-ba55-9a305a9388d1';
-    mockDb.state.conversations.set(CONV_ID, { id: CONV_ID, user_id: OTHER_USER_ID });
-    mockDb.state.messages.push({
-      conversation_id: CONV_ID,
-      role: 'user',
-      content: 'Confidential secret from other user',
+  it('stores failures and partial provider facts before releasing, without done or unsafe output', async () => {
+    const provider = vi.fn(async ({ onText }) => {
+      await onText('Partial unsafe output');
+      throw Object.assign(new Error('overloaded'), { code: 'provider_overloaded', providerResult: {
+        requestId: 'partial-1', usage: { inputTokens: 5, outputTokens: null, source: 'provider' } } });
     });
-
-    let receivedPrompts = null;
-    const callAIStream = vi.fn(async (options) => {
-      receivedPrompts = options;
-      await options.onText('Response');
-      return { finishReason: 'stop' };
-    });
-
-    const app = createServer({ db: mockDb, callAIStream });
-    const handler = getRouteHandler(app, 'POST', '/api/chat/stream');
-    const res = mockResponse();
-
-    await handler(
-      {
-        user: { id: USER_ID, email: 'user@example.com' },
-        body: {
-          conversationId: CONV_ID,
-          question: 'Hello',
-          requestId: 'req-tenant-check',
-        },
-      },
-      res,
-      vi.fn(),
-    );
-
-    const promptContent = JSON.stringify(receivedPrompts.messages);
-    expect(promptContent).not.toContain('Confidential secret from other user');
+    const response = await send(route(provider), { requestId: 'failed' });
+    expect(response.events.join('')).toContain('provider_overloaded');
+    expect(response.events.join('')).not.toContain('event: done');
+    expect(response.events.join('')).not.toContain('Partial unsafe');
+    const call = (await facts('failed')).rows[0];
+    expect(call.outcome).toBe('failed');
+    expect(call.metrics.inputTokens.value).toBe(5);
+    expect((await db.query('SELECT status FROM credit_usage_requests WHERE user_id=$1', [userId])).rows[0].status).toBe('released');
   });
-
-  it('rejects unauthenticated requests with HTTP 401 when ALLOW_DEV_GUEST is false or in production', async () => {
-    const mockDb = createMockDb({ availableCredits: 10 });
-    const app = createServer({
-      db: mockDb,
-      config: { env: { NODE_ENV: 'production', ALLOW_DEV_GUEST: 'false' } },
-    });
-    const handler = getRouteHandler(app, 'POST', '/api/chat/stream');
-    const res = mockResponse();
-
-    await handler(
-      {
-        user: null,
-        body: { question: 'Anonymous attempt', requestId: 'req-anon' },
-      },
-      res,
-      vi.fn(),
-    );
-
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({
-        error: 'unauthorized',
-      }),
-    );
+  it('does not call the provider when the durable start write fails', async () => {
+    const provider = vi.fn();
+    const usageStore = { start: async () => { throw new Error('offline'); } };
+    const response = await send(route(provider, { usageStore }));
+    expect(response.events.join('')).toContain('event: error');
+    expect(provider).not.toHaveBeenCalled();
   });
-
-  it('prevents concurrent SSE cross-talk (Request-scoped isolation test)', async () => {
-    const mockDb = createMockDb({ availableCredits: 20 });
-    const callAIStream = vi.fn(async ({ userPrompt, messages, onText }) => {
-      const q = messages?.[0]?.content || userPrompt;
-      await new Promise((r) => setTimeout(r, 10));
-      await onText(`Response for [${q}]`);
-      return { finishReason: 'stop' };
-    });
-
-    const app = createServer({ db: mockDb, callAIStream });
-    const handler = getRouteHandler(app, 'POST', '/api/chat/stream');
-
-    const resA = mockResponse();
-    const resB = mockResponse();
-
-    const promiseA = handler(
-      {
-        user: { id: USER_ID },
-        body: { question: 'Question A', requestId: 'req-A' },
-      },
-      resA,
-      vi.fn(),
-    );
-
-    const promiseB = handler(
-      {
-        user: { id: USER_ID },
-        body: { question: 'Question B', requestId: 'req-B' },
-      },
-      resB,
-      vi.fn(),
-    );
-
-    await Promise.all([promiseA, promiseB]);
-
-    const streamA = resA.events.join('');
-    const streamB = resB.events.join('');
-
-    expect(streamA).toContain('Response for [Question A]');
-    expect(streamA).not.toContain('Response for [Question B]');
-
-    expect(streamB).toContain('Response for [Question B]');
-    expect(streamB).not.toContain('Response for [Question A]');
+  it('retains recoverable started identity when the observation write fails', async () => {
+    const store = createUsageStore({ db });
+    const provider = vi.fn(async ({ onText }) => { await onText('Ready but not recorded'); return {}; });
+    const response = await send(route(provider, { usageStore: { ...store, observe: async () => { throw new Error('offline'); } } }), { requestId: 'write-failure' });
+    expect(response.events.join('')).not.toContain('event: done');
+    expect((await facts('write-failure')).rows[0].outcome).toBe('started');
   });
-
-  it('rejects with HTTP 402 when credits are insufficient', async () => {
-    const mockDb = createMockDb({ availableCredits: 0 });
-    const app = createServer({ db: mockDb });
-    const handler = getRouteHandler(app, 'POST', '/api/chat/stream');
-    const res = mockResponse();
-
-    await handler(
-      {
-        user: { id: USER_ID },
-        body: { question: 'Expensive deep analysis', requestId: 'req-poor' },
-      },
-      res,
-      vi.fn(),
-    );
-
-    expect(res.status).toHaveBeenCalledWith(402);
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({
-        error: 'insufficient_credits',
-      }),
-    );
+  it('returns 202 during a concurrent operation, replays settled output, and rejects changed input', async () => {
+    let finish, entered;
+    const started = new Promise((resolve) => { entered = resolve; });
+    const waiting = new Promise((resolve) => { finish = resolve; });
+    const provider = vi.fn(async ({ onText }) => { entered(); await waiting; await onText('Canonical response'); return {}; });
+    const handler = route(provider);
+    const first = send(handler, { requestId: 'same' });
+    await started;
+    const pending = await send(handler, { requestId: 'same' });
+    expect(pending.status).toHaveBeenCalledWith(202);
+    finish(); await first;
+    expect((await send(handler, { requestId: 'same' })).events.join('')).toContain('"replayed":true');
+    const conflict = await send(handler, { requestId: 'same', question: 'Different' });
+    expect(conflict.status).toHaveBeenCalledWith(409);
+    expect(provider).toHaveBeenCalledTimes(1);
+    expect((await facts('same')).rows).toHaveLength(1);
   });
-
-  it('replays previously settled request via SSE with 0 provider calls', async () => {
-    const mockDb = createMockDb({ availableCredits: 10 });
-    mockDb.state.requests.set('usage-replay-1', {
-      id: 'usage-replay-1',
-      user_id: USER_ID,
-      client_request_id: 'req-replay',
-      status: 'settled',
-      settled_credits: 2,
-      assistant_text: 'Cached immutable answer from previous run.',
-      conversation_id: 'conv-123',
-    });
-
-    const callAIStream = vi.fn();
-    const app = createServer({ db: mockDb, callAIStream });
-    const handler = getRouteHandler(app, 'POST', '/api/chat/stream');
-    const res = mockResponse();
-
-    await handler(
-      {
-        user: { id: USER_ID },
-        body: { question: 'Repeat query', requestId: 'req-replay' },
-      },
-      res,
-      vi.fn(),
-    );
-
-    expect(callAIStream).not.toHaveBeenCalled();
-    expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/event-stream; charset=utf-8');
-    const fullStream = res.events.join('');
-    expect(fullStream).toContain('event: start\n');
-    expect(fullStream).toContain('event: text_delta\n');
-    expect(fullStream).toContain('Cached immutable answer from previous run.');
-    expect(fullStream).toContain('event: done\n');
-    expect(res.end).toHaveBeenCalled();
+  it('keeps legacy settled replay compatible without inventing a quote or call', async () => {
+    const reserved = await reserveFeatureCredits({ db, userId, featureKey: 'deep_reasoning', clientRequestId: 'legacy', credits: 2 });
+    await settleFeatureCredits({ db, userId, requestId: reserved.request.id, creditsUsed: 2,
+      persistResult: (client) => client.query('UPDATE credit_usage_requests SET assistant_text=$2 WHERE id=$1', [reserved.request.id, 'Legacy reply']) });
+    const provider = vi.fn();
+    const res = await send(route(provider), { requestId: 'legacy' });
+    expect(res.events.join('')).toContain('Legacy reply');
+    expect(provider).not.toHaveBeenCalled();
+    expect((await facts('legacy')).rows).toHaveLength(0);
   });
-
-  it('prohibits replaying released or refunded requests as settled responses', async () => {
-    const mockDb = createMockDb({ availableCredits: 10 });
-    const FAILED_ID = 'req-released-id';
-    mockDb.state.requests.set('usage-released-1', {
-      id: 'usage-released-1',
-      user_id: USER_ID,
-      client_request_id: FAILED_ID,
-      status: 'released',
-      reserved_credits: 0,
-      assistant_text: null,
-      conversation_id: 'conv-failed',
-    });
-
-    const callAIStream = vi.fn();
-    const app = createServer({ db: mockDb, callAIStream });
-    const handler = getRouteHandler(app, 'POST', '/api/chat/stream');
-    const res = mockResponse();
-
-    await handler(
-      {
-        user: { id: USER_ID },
-        body: { question: 'Retry failed request', requestId: FAILED_ID },
-      },
-      res,
-      vi.fn(),
-    );
-
-    const fullStream = res.events.join('');
-    expect(fullStream).not.toContain('replayed":true');
+  it('isolates conversation history across accounts and concurrent request streams', async () => {
+    const otherId = randomUUID(), conversationId = randomUUID();
+    await db.query('INSERT INTO users(id) VALUES($1)', [otherId]);
+    await db.query('INSERT INTO conversations(id,user_id,domain_key) VALUES($1,$2,$3)', [conversationId, otherId, 'test']);
+    await db.query("INSERT INTO messages(conversation_id,role,content) VALUES($1,'user','Private secret')", [conversationId]);
+    const provider = vi.fn(async ({ messages, onText }) => { expect(JSON.stringify(messages)).not.toContain('Private secret'); await onText(messages.at(-1).content); return {}; });
+    const handler = route(provider);
+    const [a, b] = await Promise.all([send(handler, { question: 'Question A', conversationId }), send(handler, { question: 'Question B' })]);
+    expect(a.events.join('')).toContain('Question A');
+    expect(a.events.join('')).not.toContain('Question B');
+    expect(b.events.join('')).toContain('Question B');
+  });
+  it('rejects unauthenticated and insufficient-credit requests before external calls', async () => {
+    const provider = vi.fn();
+    const handler = route(provider, { config: { env: { NODE_ENV: 'production', ALLOW_DEV_GUEST: 'false' } } });
+    expect((await send(handler, {}, null)).status).toHaveBeenCalledWith(401);
+    await db.query('UPDATE credit_accounts SET available_credits=0 WHERE user_id=$1', [userId]);
+    expect((await send(handler)).status).toHaveBeenCalledWith(402);
+    expect(provider).not.toHaveBeenCalled();
   });
 });

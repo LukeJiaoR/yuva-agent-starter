@@ -10,3 +10,6 @@ coverage
 **/.env
 *.log
 .DS_Store
+
+.release
+ops/*.env

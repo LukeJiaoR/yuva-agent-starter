@@ -30,11 +30,19 @@
     "test": "node scripts/verify-boundaries.mjs && vitest run",
     "test:packages": "node scripts/verify-boundaries.mjs && vitest run packages/",
     "verify:boundaries": "node scripts/verify-boundaries.mjs",
-    "check": "npm test && npm run build"
+    "check": "npm test && npm run build",
+    "release:pack": "node scripts/release/pack.mjs",
+    "core:upgrade": "node scripts/release/upgrade.mjs",
+    "core:verify": "node scripts/release/verify-consumer.mjs",
+    "smoke:consumer": "node scripts/release/smoke-consumer.mjs",
+    "ops:verify": "node scripts/ops/config.mjs",
+    "ops:inspect": "node scripts/ops/inspect.mjs",
+    "ops:restore-drill": "node scripts/ops/restore-drill.mjs"
   },
   "dependencies": {
     "dotenv": "^16.6.1",
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "@yuva/billing-core": "1.2.0"
   },
   "devDependencies": {
     "concurrently": "^10.0.0",

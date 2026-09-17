@@ -53,5 +53,14 @@ jobs:
           NODE_ENV: test
         run: npm test
 
+      - name: Verify Operations Registry
+        run: npm run ops:verify
+
       - name: Build Starter Web
         run: npm run build
+
+      - name: Build Portable Containers
+        if: matrix.node-version == 24
+        run: |
+          docker build -f starter-app/Dockerfile -t starter-api:ci .
+          docker build -f starter-web/Dockerfile -t starter-web:ci .

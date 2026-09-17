@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { isolatedDatabase, quoteFixture, operationFixture } from './helpers/database.js';
 import { migrateDatabase } from '../../scripts/migrations.mjs';
-import { createOperationStore, grantCredits, getCreditBalance, reserveFeatureCredits } from '../../packages/billing-core/index.js';
+import { createOperationStore, grantCredits, getCreditBalance, reserveFeatureCredits } from '@yuva/billing-core';
 
 describe('operation identity, immutable quote and incremental migration', () => {
   let db, close, userId, store;

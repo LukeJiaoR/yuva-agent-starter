@@ -196,9 +196,11 @@ export async function generateProviderText({
   options = {},
   signal,
   generate = generateText,
+  stream = streamText,
   modelFactory = createProviderModel,
 }) {
-  let observedUsage = null;
+  let observedResult = null;
+  const onObservation = (value) => { observedResult = { ...observedResult, ...value }; };
   try {
     const providerConfig = modelFactory({
       provider,
@@ -207,18 +209,21 @@ export async function generateProviderText({
       apiKey,
       model,
     });
-    const sdkResult = await generate(commonCallOptions({
+    const callOptions = commonCallOptions({
       providerConfig,
       systemPrompt,
       messages,
       options,
       signal,
-    }));
-    observedUsage = sdkResult.usage;
+    });
+    const sdkResult = providerConfig.provider === OPENAI_PROVIDER_NAME
+      ? await consumeSdkStream(stream(callOptions), { collectText: true, onObservation })
+      : await generate(callOptions);
+    onObservation(sdkResult);
     return normalizedResult({ provider: providerConfig.provider, requestedModel: model, sdkResult });
   } catch (error) {
     const normalized = normalizeSdkError(error, signal);
-    if (observedUsage) normalized.providerResult = normalizeSdkProviderResult({ usage: observedUsage }, { provider, model });
+    if (observedResult) normalized.providerResult = normalizeSdkProviderResult(observedResult, { provider, model });
     throw normalized;
   }
 }
@@ -236,6 +241,62 @@ const SUPPORTED_STREAM_PARTS = new Set([
   "finish",
 ]);
 
+async function consumeSdkStream(sdkStream, { onText, collectText = false, onObservation = () => {} } = {}) {
+  let finish = null;
+  let finalStep = null;
+  let totalBytes = 0;
+  let sawText = false;
+  let sawReasoning = false;
+  const collectedText = [];
+
+  for await (const part of sdkStream.stream || sdkStream.fullStream) {
+    if (part.type === "error") throw part.error;
+    if (part.type === "abort") {
+      throw providerError("provider_aborted", "Provider generation was aborted", { retryable: true });
+    }
+    if (!SUPPORTED_STREAM_PARTS.has(part.type)) {
+      throw providerError("provider_protocol_error", "Provider returned unsupported non-text content");
+    }
+    if (part.type === "text-delta") {
+      sawText ||= Boolean(part.text);
+      totalBytes += Buffer.byteLength(part.text || "", "utf8");
+      if (totalBytes > PROVIDER_TEXT_MAX_BYTES) {
+        throw providerError("provider_protocol_error", "Provider response exceeded the safety limit");
+      }
+      if (part.text && collectText) collectedText.push(part.text);
+      if (part.text && onText) await onText(part.text);
+    } else if (part.type === "finish-step") {
+      finalStep = part;
+      onObservation({ usage: part.usage, response: part.response, providerMetadata: part.providerMetadata, finishReason: part.finishReason });
+    } else if (part.type === "finish") {
+      finish = part;
+      onObservation({ ...(part.totalUsage ? { usage: part.totalUsage } : {}), finishReason: part.finishReason });
+    } else if (part.type === "reasoning-delta") {
+      sawReasoning ||= Boolean(part.text);
+    }
+  }
+
+  if (!finish || !finalStep) {
+    throw providerError("incomplete_provider_stream", "Provider stream ended before SDK completion", {
+      retryable: true,
+    });
+  }
+  if (!sawText && sawReasoning) {
+    throw providerError("provider_protocol_error", "Provider returned non-text-only output");
+  }
+
+  const text = collectText ? collectedText.join("") : "";
+  return {
+    text,
+    content: text ? [{ type: "text", text }] : [],
+    finishReason: finish.finishReason,
+    rawFinishReason: finish.rawFinishReason,
+    usage: finish.totalUsage ?? finalStep.usage,
+    response: finalStep.response,
+    providerMetadata: finalStep.providerMetadata,
+  };
+}
+
 export async function streamProviderText({
   provider = "openai",
   fetchFn,
@@ -250,7 +311,8 @@ export async function streamProviderText({
   stream = streamText,
   modelFactory = createProviderModel,
 }) {
-  let observedUsage = null;
+  let observedResult = null;
+  const onObservation = (value) => { observedResult = { ...observedResult, ...value }; };
   try {
     const providerConfig = modelFactory({
       provider,
@@ -266,62 +328,12 @@ export async function streamProviderText({
       options,
       signal,
     }));
-    let finish = null;
-    let finalStep = null;
-    let totalBytes = 0;
-    let sawText = false;
-    let sawReasoning = false;
-
-    for await (const part of sdkStream.stream || sdkStream.fullStream) {
-      if (part.type === "error") throw part.error;
-      if (part.type === "abort") {
-        throw providerError("provider_aborted", "Provider generation was aborted", { retryable: true });
-      }
-      if (!SUPPORTED_STREAM_PARTS.has(part.type)) {
-        throw providerError("provider_protocol_error", "Provider returned unsupported non-text content");
-      }
-      if (part.type === "text-delta") {
-        sawText ||= Boolean(part.text);
-        totalBytes += Buffer.byteLength(part.text || "", "utf8");
-        if (totalBytes > PROVIDER_TEXT_MAX_BYTES) {
-          throw providerError("provider_protocol_error", "Provider response exceeded the safety limit");
-        }
-        if (part.text) await onText(part.text);
-      } else if (part.type === "finish-step") {
-        finalStep = part;
-        observedUsage = part.usage || observedUsage;
-      } else if (part.type === "finish") {
-        finish = part;
-        observedUsage = part.totalUsage || observedUsage;
-      } else if (part.type === "reasoning-delta") {
-        sawReasoning ||= Boolean(part.text);
-      }
-    }
-
-    if (!finish || !finalStep) {
-      throw providerError("incomplete_provider_stream", "Provider stream ended before SDK completion", {
-        retryable: true,
-      });
-    }
-    if (!sawText && sawReasoning) {
-      throw providerError("provider_protocol_error", "Provider returned non-text-only output");
-    }
-    return normalizedResult({
-      provider: providerConfig.provider,
-      requestedModel: model,
-      sdkResult: {
-        text: "",
-        content: [],
-        finishReason: finish.finishReason,
-        rawFinishReason: finish.rawFinishReason,
-        usage: finish.totalUsage,
-        response: finalStep.response,
-        providerMetadata: finalStep.providerMetadata,
-      },
-    });
+    const sdkResult = await consumeSdkStream(sdkStream, { onText, onObservation });
+    onObservation(sdkResult);
+    return normalizedResult({ provider: providerConfig.provider, requestedModel: model, sdkResult });
   } catch (error) {
     const normalized = normalizeSdkError(error, signal);
-    if (observedUsage) normalized.providerResult = normalizeSdkProviderResult({ usage: observedUsage }, { provider, model });
+    if (observedResult) normalized.providerResult = normalizeSdkProviderResult(observedResult, { provider, model });
     throw normalized;
   }
 }

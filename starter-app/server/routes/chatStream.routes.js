@@ -7,17 +7,20 @@ import {
   setSseHeaders,
   streamProviderText,
   countUnicodeTokens,
-} from '../../../packages/ai-engine/index.js';
-import { allocateContextBudget } from '../../../packages/context-engine/index.js';
+  createMeteredProvider,
+  createSyntheticProviderResult,
+} from '@yuva/ai-engine';
+import { allocateContextBudget } from '@yuva/context-engine';
 import {
-  reserveFeatureCredits,
+  createOperationStore,
   settleFeatureCredits,
   releaseFeatureCredits,
   getCreditBalance,
   assertCapability,
-} from '../../../packages/billing-core/index.js';
+} from '@yuva/billing-core';
 import { DomainPrompts } from '../domain/prompts.js';
 import { PricingCatalog } from '../domain/pricing.config.js';
+import { createUsageStore } from '../stores/usageStore.js';
 import { toPublicError } from '../http/errors.js';
 
 export function createChatStreamRoutes({
@@ -25,9 +28,28 @@ export function createChatStreamRoutes({
   adapter,
   callAIStream,
   validateOutput,
+  operationStore = createOperationStore({ db }),
+  usageStore = createUsageStore({ db }),
   env = process.env,
 } = {}) {
   const router = express.Router();
+  const provider = env.AI_PROVIDER || 'openai';
+  const model = provider === 'mock' ? 'starter-local' : provider === 'anthropic'
+    ? (env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022') : (env.OPENAI_MODEL || 'gpt-4o');
+  const identity = (input, accountId, clientRequestId) => ({
+    accountId, clientRequestId, featureKey: PricingCatalog.features.deep_reasoning.key,
+    taskType: 'text', mode: 'stream', inputVersion: '1',
+    input: { question: input.question, subject: input.subject || 'Default Subject', parameters: input.parameters || {},
+      conversationId: input.conversationId || input.conversation_id || null, domainKey: adapter.domainKey },
+  });
+  const quote = () => ({
+    contractVersion: 1, policyId: 'fixed', policyVersion: '1', unit: 'credit',
+    reserveCredits: PricingCatalog.features.deep_reasoning.credits, authorizedCredits: PricingCatalog.features.deep_reasoning.credits,
+    terms: { credits: PricingCatalog.features.deep_reasoning.credits, provider },
+    limits: { models: [model], maxCalls: 1, maxRetries: 0, maxInputTokens: 6000, maxOutputTokens: 1024, deadlineMs: 60000 },
+    billingScope: 'successful_calls', missingUsage: 'defer', fulfillmentVersion: '1',
+    createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 300000).toISOString(),
+  });
 
   function normalizeRequest(body) {
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -96,6 +118,7 @@ export function createChatStreamRoutes({
         valid: true,
         request: {
           clientRequestId,
+          operationInput: identity(input, user.id, clientRequestId),
           conversationId,
           question,
           factsSnapshot: snapshot,
@@ -189,7 +212,10 @@ export function createChatStreamRoutes({
         async push(delta) {
           buffer += delta;
         },
-        async flush() {
+        async flush({ providerResult }) {
+          if (['safety_refusal', 'provider_error'].includes(providerResult?.outcome)) {
+            throw Object.assign(new Error('Provider did not produce an accepted result'), { code: 'provider_refusal', status: 422 });
+          }
           const text = buffer.trim();
           if (!text) {
             throw new Error('Assistant generated an empty response');
@@ -231,7 +257,9 @@ export function createChatStreamRoutes({
       const clientRequestId = request.requestId || request.clientRequestId || request.request_id;
       if (!clientRequestId) return null;
 
-      try {
+      await operationStore.find({ accountId: user.id, clientRequestId,
+        operation: identity(request, user.id, clientRequestId) });
+      {
         const res = await activeDb.query(
           'SELECT * FROM credit_usage_requests WHERE user_id = $1 AND client_request_id = $2',
           [user.id, clientRequestId],
@@ -261,23 +289,20 @@ export function createChatStreamRoutes({
             request: existing,
           };
         }
-      } catch {
-        return null;
       }
       return null;
     },
 
     async reserve({ request, user, db: activeDb }) {
       const requiredCredits = PricingCatalog.features.deep_reasoning.credits;
-      const featureKey = PricingCatalog.features.deep_reasoning.key;
 
-      const result = await reserveFeatureCredits({
-        db: activeDb,
-        userId: user.id,
-        featureKey,
-        clientRequestId: request.clientRequestId,
-        credits: requiredCredits,
-      });
+      const result = await operationStore.reserve({ operation: request.operationInput, quote: quote() });
+      if (result.kind === 'existing') {
+        const { rows: [existing] } = await activeDb.query('SELECT * FROM credit_usage_requests WHERE id = $1 AND user_id = $2',
+          [result.operation.ledgerRequestId, user.id]);
+        result.request = existing;
+      }
+      if (result.kind === 'legacy') result.kind = 'existing';
 
       if (result.kind === 'insufficient' || result.kind === 'debt') {
         return {
@@ -340,6 +365,7 @@ export function createChatStreamRoutes({
 
       return {
         kind: 'reserved',
+        operation: result.operation,
         reservedCredits: requiredCredits,
         reservationId: result.request?.id,
         request: result.request,
@@ -349,7 +375,8 @@ export function createChatStreamRoutes({
 
     async settle({ request, reservation, user, db: activeDb, providerResult, output, rawOutput }) {
       const textToSave = output || rawOutput || '';
-      const billableTokens = providerResult?.billableTokens || countUnicodeTokens(textToSave);
+      const billableTokens = providerResult?.usage?.source === 'provider'
+        ? providerResult.usage.totalTokens ?? null : null;
       const creditsUsed = reservation?.reservedCredits || PricingCatalog.features.deep_reasoning.credits;
 
       await settleFeatureCredits({
@@ -470,13 +497,7 @@ export function createChatStreamRoutes({
         }
         const text = `Starter response for: ${options.userPrompt || options.messages?.at(-1)?.content || 'your question'}`;
         await options.onText(text);
-        return {
-          provider: 'mock',
-          model: 'starter-local',
-          finishReason: 'stop',
-          billableTokens: countUnicodeTokens(text),
-          usage: { source: 'synthetic' },
-        };
+        return createSyntheticProviderResult({ text, provider: 'mock', model: 'starter-local' });
       }
       const isAnthropic = provider === 'anthropic';
       const apiKey = isAnthropic ? env.ANTHROPIC_API_KEY : env.OPENAI_API_KEY;
@@ -532,6 +553,12 @@ export function createChatStreamRoutes({
     validationPort,
     billingPort,
     streamPort,
+    usagePort: {
+      invoke({ invoke, options, reservation }) {
+        return createMeteredProvider({ store: usageStore, operation: reservation.operation, provider, model,
+          attempt: reservation.request?.attempt_count || 1, invoke })(options);
+      },
+    },
   });
 
   router.post('/api/chat/stream', async (req, res, next) => {
@@ -554,14 +581,24 @@ export function createChatStreamRoutes({
         };
       }
 
-      const result = await runtime({
+      const controller = new AbortController();
+      const disconnected = () => { if (!res.writableEnded) controller.abort('client_disconnect'); };
+      req.once?.('aborted', disconnected);
+      res.once?.('close', disconnected);
+      let result;
+      try { result = await runtime({
         request: normalizeRequest(req.body),
         user,
         req,
         res,
         db,
         env,
-      });
+        signal: controller.signal,
+        abortReason: () => controller.signal.aborted ? 'client_disconnect' : null,
+      }); } finally {
+        req.off?.('aborted', disconnected);
+        res.off?.('close', disconnected);
+      }
 
       if (!result.streamed && !res.headersSent) {
         return res.status(result.statusCode || result.status || 200).json(result.body || result);

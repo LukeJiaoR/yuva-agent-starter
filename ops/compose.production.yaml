@@ -1,0 +1,39 @@
+# Explicit portable production baseline. External PostgreSQL has its own backups.
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: starter-app/Dockerfile
+    env_file:
+      - ${APP_ENV_FILE:?set APP_ENV_FILE to an absolute protected environment file}
+    environment:
+      NODE_ENV: production
+      ALLOW_DEV_GUEST: "false"
+      PORT: 3000
+    command: ["npm", "start"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/ready').then(r=>{if(!r.ok)process.exit(1)})"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  web:
+    build:
+      context: ..
+      dockerfile: starter-web/Dockerfile
+    ports:
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

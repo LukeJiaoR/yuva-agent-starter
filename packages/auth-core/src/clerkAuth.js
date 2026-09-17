@@ -1,8 +1,5 @@
 import { verifyToken } from '@clerk/backend';
-import {
-  TokenVerificationError,
-  TokenVerificationErrorReason,
-} from '@clerk/backend/errors';
+import { TokenVerificationErrorReason } from '@clerk/backend/errors';
 
 const INVALID_TOKEN_REASONS = new Set([
   TokenVerificationErrorReason.TokenVerificationFailed,
@@ -70,13 +67,11 @@ function authInfrastructureError(res) {
 }
 
 function isInvalidClerkTokenError(error) {
-  return error instanceof TokenVerificationError
-    && INVALID_TOKEN_REASONS.has(error.reason);
+  return INVALID_TOKEN_REASONS.has(error?.reason);
 }
 
 function isInvalidSignatureError(error) {
-  return error instanceof TokenVerificationError
-    && error.reason === TokenVerificationErrorReason.TokenInvalidSignature;
+  return error?.reason === TokenVerificationErrorReason.TokenInvalidSignature;
 }
 
 function verificationErrors(verification) {
@@ -208,6 +203,7 @@ export function createRequireAuth({
   profileUnavailableError = 'User profile is temporarily unavailable',
   profileUnavailableCode = 'user_profile_unavailable',
   env = process.env,
+  tokenVerifier = verifyToken,
 } = {}) {
   return async function requireAuth(req, res, next) {
     return requireClerkAuth(req, res, async () => {
@@ -228,7 +224,7 @@ export function createRequireAuth({
           code: profileUnavailableCode,
         });
       }
-    }, { env });
+    }, { env, tokenVerifier });
   };
 }
 
@@ -241,9 +237,10 @@ export function createOptionalAuth({
   profileUnavailableError = 'User profile is temporarily unavailable',
   profileUnavailableCode = 'user_profile_unavailable',
   env = process.env,
+  tokenVerifier = verifyToken,
 } = {}) {
   return async function optionalAuth(req, res, next) {
-    const auth = await verifyClerkRequest(req, { env });
+    const auth = await verifyClerkRequest(req, { env, tokenVerifier });
     if (auth.kind === 'missing') {
       req.user = null;
       req.clerkAuth = null;

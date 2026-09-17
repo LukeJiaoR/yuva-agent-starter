@@ -55,16 +55,17 @@ advisory lock. Legacy v1 installs are adopted without re-running their baseline.
 Do not edit applied files: add the next numbered migration. Application rollback
 requires a schema-compatible release; migrations are not automatically reversed.
 
-The operation store is injected via the billing adapter in the next phase; this
-phase does not fabricate quotes for historical requests. Failed reservation creates
+The default chat route persists new operations and frozen quotes through the injected
+operation store; it does not fabricate quotes for historical requests. Failed reservation creates
 no runnable operation. An accepted operation retains its original quote on retry.
 
 ## Durable usage
 
 `usageStore.test.js` verifies call-before-provider persistence, failed and partial
 usage, missing versus zero, repeated observations, source history, scoped reads
-and storage failures. `createMeteredProvider` is an injected wrapper; app wiring
-is completed with the budget and billing adapter phases. A started call without
+and storage failures. The default route injects `createUsageStore` through the
+runtime `usagePort`; `chatStream.test.js` exercises that actual path on PostgreSQL.
+Consumers can inject their own operation and usage stores through `createServer`. A started call without
 a completion remains unknown after restart. No output-length token estimate is
 substituted for provider measurements. Costs use integer strings and decimal
 scale, grouped by currency; cached/reasoning metrics remain subsets.
