@@ -72,7 +72,8 @@
       "repository": "LukeJiaoR/yuva-agent-starter",
       "path": "examples/customer-support",
       "coreVersion": "1.2.0",
-      "upgradeStatus": "pending review"
+      "upgradeStatus": "pending review",
+      "pullRequest": "https://github.com/LukeJiaoR/yuva-agent-starter/pull/35"
     }
   ]
 }
