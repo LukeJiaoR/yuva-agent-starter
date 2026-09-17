@@ -37,6 +37,7 @@ simulate an adapter response and do not claim a real paid provider measurement.
 | Same mechanism for fixed/token products, explicit selection | `productComposition.test.js`: default/explicit configuration; `product-examples.test.js`: both runnable examples settle/replay/clean up; `chatStream.test.js`: explicit token configuration |
 | Multiple calls/retry retain costs, one bill | `epicAcceptance.test.js`: `%s %s product retains all retry cost facts and settles one frozen bill` (fixed/token, stream/sync); three call records, exact summed cost, failed attempt excluded from token bill, one ledger charge |
 | Frozen token rates, scope, aggregation and one rounding | `tokenPricing.test.js`: `aggregates before rounding once`, `excludes failed internal attempts`, frozen rates and unused reservation tests |
+| Expired grant remainder is not restored as spendable credits | `epicAcceptance.test.js`: `does not restore expired membership remainder when actual charge is below reservation`; reserve 5, charge 2, expire remaining 3, replay makes no new charge |
 | Concurrent same-key identity, different-input conflict, tenant isolation | `operationStore.test.js`: concurrent retry/frozen identity; `chatStream.test.js`: concurrent 202/replay/conflict; `fixedPricing.test.js`: foreign account/reservation/artifact rejection |
 | Restart/config change retains accepted quote | `fixedPricing.test.js`: persisted terms/tampered quote; `recoveryRunner.test.js`: token usage recovery after process restart with changed configured rates |
 | Missing, zero, synthetic, estimated and provider sources stay distinct | `usageStore.test.js`: source history, missing versus zero, unlabeled data rejection; `tokenPricing.test.js`: missing/synthetic defer and frozen estimate basis |
@@ -47,6 +48,7 @@ simulate an adapter response and do not claim a real paid provider measurement.
 | Real COMMIT succeeds but ACK is lost; rollback differs | `reliableSettlement.test.js`: `distinguishes unknown COMMIT acknowledgment (committed=%s) from known rollback`; committed branch executes actual PostgreSQL COMMIT before injecting transport error, then verifies one charge |
 | Disconnect after settlement preserves charged result | `chatStream.test.js`: `replays the durable result after post-settlement SSE failure without invoking the model again` |
 | Concurrent workers, expired lease, replacement and late observations | `recoveryLease.test.js`: concurrent claim and stale executor/worker fencing; `recoveryRunner.test.js`: takeover during query, active provider deferral and immutable terminal bill after late usage |
+| Safe recovery statistics distinguish failures from ordinary pending | `recoveryRunner.test.js`: dry-run/release/running counters; `counts failed reconciliation without exposing the provider payload or releasing funds` |
 | New schema matches upgraded schema; financial history unchanged | `epicAcceptance.test.js`: legacy settled history snapshots compare users, accounts, grants, requests, allocations and transactions; new/upgraded column definitions match; historical HTTP replay calls no model. `operationStore.test.js`: concurrent migration/checksum checks |
 | Media contract recovery shares ledger, requires no token/SSE/text field | `epicAcceptance.test.js`: image/video async fixture unknown submission, external running, concurrent completion recovery, duplicate callbacks and stable artifact replay; same fixed policy and one charge. Sync/stream products above use the same billing adapter |
 | Ephemeral signed URL is not durable delivery evidence | `operationContract.test.js`: foreign/ephemeral artifact rejection; media acceptance validates stable account-owned storage keys and rejects expired signed URL references |
@@ -63,7 +65,7 @@ conflict. Completed generation with unsaved artifacts stays partial and reserved
 recovery uses the existing job's saved artifacts before settling the frozen fee.
 
 Local acceptance evidence on 2026-09-17, Node 24.14.0 / PostgreSQL: 27 files,
-220 passed, zero skipped; `npm run build` and `npm run ops:verify` passed.
+222 passed, zero skipped; `npm run build` and `npm run ops:verify` passed.
 Negative checks: invoking `test:acceptance` without `TEST_DATABASE_URL` failed
 immediately; running `httpContract.test.js` with an explicit unreachable loopback
 database failed its setup instead of returning success. The PR's Node 22/24 CI

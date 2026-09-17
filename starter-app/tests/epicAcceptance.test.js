@@ -14,6 +14,30 @@ import { grantCredits, getCreditBalance, reserveFeatureCredits, settleFeatureCre
   createOperationBillingPort, validateFulfillment } from '@yuva/billing-core';
 
 describe('Epic #1 cross-module acceptance', () => {
+  it('does not restore expired membership remainder when actual charge is below reservation', async () => {
+    const { db, close } = await isolatedDatabase();
+    try {
+      const accountId = randomUUID();
+      await db.query('INSERT INTO users(id) VALUES($1)', [accountId]);
+      const grant = await grantCredits({ db, userId: accountId, credits: 5, creditType: 'membership',
+        sourceType: 'membership', expiresAt: new Date(Date.now() + 60000), idempotencyKey: randomUUID() });
+      const { operation } = await createOperationStore({ db }).reserve({ operation: operationFixture(accountId), quote: quoteFixture(5) });
+      await db.query("UPDATE credit_grants SET expires_at=clock_timestamp()-interval '1 second' WHERE id=$1", [grant.grantId]);
+      const settlement = createOperationSettlementStore({ db });
+      const context = { operationId: operation.id, accountId, decision: { action: 'settle', credits: 2, reason: 'actual_usage' },
+        fulfillment: { accountId, status: 'ready', ruleVersion: '1', resultId: operation.id,
+          artifacts: [{ accountId, id: operation.id, type: 'text', state: 'available', text: 'Saved result' }] } };
+      expect((await settlement.apply(context)).creditsUsed).toBe(2);
+      expect((await settlement.apply(context)).replay).toBe(true);
+      expect(await getCreditBalance({ db, userId: accountId })).toMatchObject({ available: 0, reserved: 0 });
+      expect((await db.query('SELECT remaining_credits,reserved_credits,status FROM credit_grants WHERE id=$1', [grant.grantId])).rows[0])
+        .toEqual({ remaining_credits: 0, reserved_credits: 0, status: 'expired' });
+      expect((await db.query('SELECT settled_credits,released_credits FROM credit_usage_allocations WHERE usage_request_id=$1', [operation.ledgerRequestId])).rows[0])
+        .toEqual({ settled_credits: 2, released_credits: 3 });
+      expect((await db.query("SELECT * FROM credit_transactions WHERE user_id=$1 AND transaction_type='usage_charge'", [accountId])).rows).toHaveLength(1);
+    } finally { await close(); }
+  }, 20000);
+
   it.each([['fixed', 'stream'], ['token', 'stream'], ['fixed', 'sync'], ['token', 'sync']])('%s %s product retains all retry cost facts and settles one frozen bill', async (strategy, mode) => {
     const { db, close } = await isolatedDatabase();
     try {
