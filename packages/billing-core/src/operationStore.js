@@ -19,7 +19,7 @@ export function operationFingerprint(operation) {
 export function operationFromRow(row) {
   if (!row) return null;
   return { id: row.id, accountId: row.account_id, clientRequestId: row.client_request_id,
-    featureKey: row.feature_key, taskType: row.task_type, mode: row.execution_mode,
+    featureKey: row.feature_key, taskType: row.task_type, mode: row.execution_mode, createdAt: row.created_at,
     inputVersion: row.input_version, fingerprint: row.input_fingerprint, quote: row.quote,
     ledgerRequestId: row.ledger_request_id, executionStatus: row.execution_status };
 }

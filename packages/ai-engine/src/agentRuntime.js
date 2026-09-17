@@ -86,6 +86,27 @@ export function createAgentRuntime(runtimeDefaults = {}) {
     let canonicalRequest = request;
     let providerResult = null;
     let retryExistingRequest = null;
+    let context = null;
+    let budget = null;
+    let promptPayload = null;
+    const prepareExecution = async () => {
+      phase = 'context';
+      if (typeof contextPort.resolveContext === 'function') {
+        context = await contextPort.resolveContext({ request: canonicalRequest, user, db, env, logger });
+      }
+      if (typeof contextPort.allocateBudget === 'function') {
+        budget = await contextPort.allocateBudget({ context, request: canonicalRequest, env });
+        if (budget?.diagnostics && typeof onContextDiagnostics === 'function') onContextDiagnostics(budget.diagnostics);
+        if (budget?.context) context = budget.context;
+      }
+      phase = 'prompt';
+      if (typeof promptPort.composePrompt === 'function') {
+        promptPayload = await promptPort.composePrompt({ request: canonicalRequest, reservation, context, budget, user, env });
+      }
+      if (typeof options.executionPort?.preflight === 'function') {
+        await options.executionPort.preflight({ request: canonicalRequest, promptPayload, user });
+      }
+    };
 
     try {
       // 1. Idempotency & existing request check
@@ -183,6 +204,7 @@ export function createAgentRuntime(runtimeDefaults = {}) {
 
 
       // 3. Reservation / quota lock
+      if (options.prepareBeforeReserve) await prepareExecution();
       if (typeof billingPort.reserve === "function") {
         phase = "reservation";
         reservation = await billingPort.reserve({ request: canonicalRequest, user, db, env });
@@ -291,28 +313,7 @@ export function createAgentRuntime(runtimeDefaults = {}) {
       }
 
       // 5. Context resolution & dynamic budgeting
-      phase = "context";
-      let context = null;
-      let budget = null;
-      if (typeof contextPort.resolveContext === "function") {
-        context = await contextPort.resolveContext({ request: canonicalRequest, user, db, env, logger });
-      }
-      if (typeof contextPort.allocateBudget === "function") {
-        budget = await contextPort.allocateBudget({ context, request: canonicalRequest, env });
-        if (budget?.diagnostics && typeof onContextDiagnostics === "function") {
-          onContextDiagnostics(budget.diagnostics);
-        }
-        if (budget?.context) {
-          context = budget.context;
-        }
-      }
-
-      // 6. Prompt composition (explicitly receives budget alongside context and reservation)
-      phase = "prompt";
-      let promptPayload = null;
-      if (typeof promptPort.composePrompt === "function") {
-        promptPayload = await promptPort.composePrompt({ request: canonicalRequest, reservation, context, budget, user, env });
-      }
+      if (!options.prepareBeforeReserve) await prepareExecution();
 
       // 6. Provider streaming and optional server-owned delivery processing
       phase = "generation";

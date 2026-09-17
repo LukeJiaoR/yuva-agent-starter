@@ -73,7 +73,8 @@ export function summarizeUsage(calls) {
 export function createMeteredProvider({ store, operation, provider, model, attempt = 1, invoke, now = Date.now }) {
   return async (options = {}) => {
     const callId = randomUUID();
-    await store.start({ callId, operationId: operation.id, accountId: operation.accountId, attempt, provider, model });
+    await store.start({ callId, operationId: operation.id, accountId: operation.accountId, attempt, provider,
+      model: options.model ?? model, executionBudget: options.executionBudget });
     const started = now();
     const observe = async (result, outcome, failureCode = null) => {
       try {
@@ -82,6 +83,7 @@ export function createMeteredProvider({ store, operation, provider, model, attem
           providerRequestId: result?.requestId ?? null, providerJobId: result?.jobId ?? null,
           model: result?.model ?? model, modelIdentitySource: result?.modelIdentitySource ?? 'requested_fallback',
           durationMs: Math.max(0, now() - started), failureCode,
+          externalStatus: outcome === 'succeeded' || failureCode === 'provider_refusal' ? 'completed' : 'unknown',
         } });
       } catch (cause) {
         // The start row remains the durable recovery signal. Preserve the partial fact for the caller too.
@@ -90,7 +92,7 @@ export function createMeteredProvider({ store, operation, provider, model, attem
       }
     };
     let result;
-    try { result = await invoke({ ...options, callId }); }
+    try { options.signal?.throwIfAborted(); result = await invoke({ ...options, callId }); }
     catch (error) {
       const timeout = options.signal?.reason?.name === 'TimeoutError' || error?.name === 'TimeoutError';
       await observe(error.providerResult, options.signal?.aborted && !timeout ? 'cancelled' : 'failed',
