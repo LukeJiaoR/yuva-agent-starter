@@ -1,6 +1,6 @@
 # Creating a project
 
-The generator turns this repository into an independent starting point. Run it from a clone of `yuva-agent-starter`:
+The generator turns this repository into an independent product with versioned core artifacts. It copies product workspaces and setup scripts, and vendors verified core tarballs instead of editable `packages/*` source. Run it from a clone of `yuva-agent-starter`:
 
 ```bash
 npm run create -- customer-support-agent \
@@ -29,7 +29,7 @@ The destination must be absent or empty. The generator refuses to write inside t
 - `starter-app/.env` is created from the safe development example.
 - `starter-web/.env` receives the local product name and description.
 - `starter-web/.env.production` receives the same public Vite values for container and production builds. It must never contain secrets because `VITE_*` values are shipped to browsers.
-- `.starter.json` records the starter source and domain metadata.
+- `.starter.json` records the starter source commit, component versions/hashes and domain metadata; `.core-release.json` pins the current release manifest. See [core releases](releases.md) for upgrades.
 
 ## First-run checklist
 

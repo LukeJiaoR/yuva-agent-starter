@@ -15,12 +15,13 @@ describe('create-web-app generator', () => {
     result = spawnSync(process.execPath, [
       'scripts/create-web-app.mjs',
       'legal-lens',
+      '--development',
       '--domain', 'Legal Research',
       '--domain-key', 'legal-research',
       '--description', 'Review controlled legal facts before asking the model.',
       '--target', target,
     ], { cwd: path.resolve('.'), encoding: 'utf8' });
-  }, 20_000);
+  }, 120_000);
 
   afterAll(async () => {
     if (temporaryRoot) await fs.rm(temporaryRoot, { recursive: true, force: true });
@@ -32,6 +33,10 @@ describe('create-web-app generator', () => {
     const lock = JSON.parse(await fs.readFile(path.join(target, 'package-lock.json'), 'utf8'));
     const metadata = JSON.parse(await fs.readFile(path.join(target, '.starter.json'), 'utf8'));
     expect(manifest.name).toBe('legal-lens');
+    expect(manifest.workspaces).toEqual(['starter-app', 'starter-web']);
+    expect(metadata.source.commit).toMatch(/^[a-f0-9]{40}$/u);
+    expect(metadata.core.packages).toHaveLength(5);
+    await expect(fs.access(path.join(target, 'packages'))).rejects.toMatchObject({ code: 'ENOENT' });
     expect(lock.name).toBe('legal-lens');
     expect(metadata).toMatchObject({
       appName: 'Legal Research',

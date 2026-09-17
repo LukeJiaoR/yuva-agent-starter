@@ -21,6 +21,7 @@
     "@yuva/context-engine": "1.1.0"
   },
   "devDependencies": {
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "@yuva/admin-core": "1.1.0"
   }
 }

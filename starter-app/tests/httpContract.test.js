@@ -4,10 +4,10 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { beginAdminAction, finishAdminAction } from '../../packages/admin-core/index.js';
-import { provisionExternalIdentity } from '../../packages/auth-core/index.js';
+import { beginAdminAction, finishAdminAction } from '@yuva/admin-core';
+import { provisionExternalIdentity } from '@yuva/auth-core';
 import { createServer } from '../server/index.js';
-import { reserveFeatureCredits, settleFeatureCredits } from '../../packages/billing-core/index.js';
+import { reserveFeatureCredits, settleFeatureCredits } from '@yuva/billing-core';
 
 const { Pool } = pg;
 const testDir = path.dirname(fileURLToPath(import.meta.url));
