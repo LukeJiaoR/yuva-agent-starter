@@ -58,3 +58,16 @@ Local development can use the seeded guest when `ALLOW_DEV_GUEST_AUTH=true`. Pro
 ## Error contract
 
 JSON endpoints return a stable public error object. Streaming endpoints emit the same safe code and message in an error event. SQL, parser, stack, provider, and raw validation details are never part of the public response; inspect server logs with the request ID instead.
+# Operation settlement status
+
+New operations store financial state independently of HTTP/SSE delivery. Successful
+text replay reads the account-scoped canonical result. `settled` and `no_charge`
+are successful financial terminal states; the default configuration remains 2
+credits. Historical ledger-only text results keep their existing replay behavior.
+
+An in-flight or `reconciliation_required` request returns HTTP 202 with its stable
+`request_id` and `status`. A deferred live stream emits `pending` with that status,
+without a successful `done`. SSE errors include `financial_status` when known.
+Retry the same request identity to inspect state; do not create a new operation to
+recover an unknown submission. A missing result link does not authorize charging
+again; applications regenerate access URLs from an authorized stable storage key.

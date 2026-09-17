@@ -395,7 +395,13 @@ export function createAgentRuntime(runtimeDefaults = {}) {
           signal,
           shouldAbort: () => Boolean(signal?.aborted),
         });
-        settled = true;
+        settled = !settlement?.status || ['settled', 'no_charge'].includes(settlement.status);
+        if (!settled) {
+          try { streamPort.emitPending?.(emitter, { request: canonicalRequest, settlement }); } catch {}
+          return { handled: true, streamed: Boolean(emitter), terminalStatus: settlement.status,
+            statusCode: settlement.status === 'released' ? 422 : 202, settlement,
+            body: { status: settlement.status, request_id: canonicalRequest?.clientRequestId } };
+        }
       }
 
       // A staged delivery may validate during generation but defer client output
@@ -488,10 +494,18 @@ export function createAgentRuntime(runtimeDefaults = {}) {
         message: runError.message,
       });
 
-      // Release reserved credits ONLY IF not already settled
-      if (reservation && !settled && typeof billingPort.release === "function") {
+      let terminalStatus = settled ? 'settled' : reservation ? 'reconciliation_required' : 'unreserved';
+      // New adapters reconcile from persistent facts. Legacy ports retain their existing release hook.
+      if (reservation && typeof billingPort.onFailure === 'function') {
         try {
-          await billingPort.release({
+          const financial = await billingPort.onFailure({ request: canonicalRequest, user, db, reservation, providerResult, error, phase });
+          terminalStatus = financial.status;
+        } catch (reconciliationError) {
+          logger.error?.('[agent-runtime] state reconciliation unavailable', { code: reconciliationError.code });
+        }
+      } else if (reservation && !settled && typeof billingPort.release === "function") {
+        try {
+          const released = await billingPort.release({
             request: canonicalRequest,
             user,
             db,
@@ -499,6 +513,7 @@ export function createAgentRuntime(runtimeDefaults = {}) {
             providerResult,
             error: runError,
           });
+          terminalStatus = released?.status || released?.request?.status || 'released';
         } catch (releaseErr) {
           logger.error?.("[agent-runtime] release failed", { error: releaseErr?.message });
           if (typeof billingPort.markReconciliation === "function") {
@@ -509,13 +524,13 @@ export function createAgentRuntime(runtimeDefaults = {}) {
 
 
       if (emitter && typeof streamPort.emitError === "function") {
-        streamPort.emitError(emitter, runError);
+        try { streamPort.emitError(emitter, { ...runError, message: runError.message, financialStatus: terminalStatus }); } catch {}
       }
 
       return {
         handled: true,
         streamed: Boolean(emitter),
-        terminalStatus: "released",
+        terminalStatus,
         requestId: canonicalRequest?.clientRequestId || canonicalRequest?.id,
         conversationId: canonicalRequest?.conversationId,
         statusCode: runError.statusCode || runError.status || 500,

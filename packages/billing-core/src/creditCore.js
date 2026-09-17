@@ -55,24 +55,31 @@ export function normalizeCreditBalance(row) {
   };
 }
 
-export async function withCreditTransaction(db, callback, { beforeCommit = null } = {}) {
+export async function withCreditTransaction(db, callback, { beforeCommit = null, trackCommitOutcome = false } = {}) {
   if (typeof db.release === "function" || typeof db.connect !== "function") {
     const result = await callback(db);
     beforeCommit?.();
     return result;
   }
   const client = await db.connect();
+  let committing = false;
+  let uncertain = false;
   try {
     await client.query("BEGIN");
     const result = await callback(client);
     beforeCommit?.();
+    committing = true;
     await client.query("COMMIT");
     return result;
   } catch (error) {
+    // Server-reported transaction aborts are definitive. Transport loss during COMMIT is not.
+    uncertain = trackCommitOutcome && committing && !['40001', '40P01', '23503', '23505', '23514', '25P02'].includes(error.code);
     await client.query("ROLLBACK").catch(() => {});
+    if (uncertain) throw Object.assign(new Error('Commit outcome requires reconciliation', { cause: error }),
+      { code: 'commit_outcome_unknown', reconciliationRequired: true });
     throw error;
   } finally {
-    client.release();
+    client.release(uncertain ? new Error('Uncertain transaction connection') : undefined);
   }
 }
 

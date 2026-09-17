@@ -12,3 +12,4 @@ export * from './src/operationContract.js';
 export * from './src/operationStore.js';
 export * from './src/fixedOperationPricing.js';
 export * from './src/operationBillingPort.js';
+export * from './src/operationSettlement.js';

@@ -60,14 +60,14 @@ describe('fixed operation policy and ledger adapter', () => {
   it('releases confirmed failed fulfillment but does not report success', async () => {
     const adapter = port(2, { evaluateFulfillment: ({ operation }) => ({ ...fulfillment({ operation }), status: 'failed', artifacts: [] }) });
     const context = await reserve(adapter);
-    await expect(adapter.settle(context)).rejects.toMatchObject({ code: 'fulfillment_failed' });
+    expect((await adapter.settle(context)).status).toBe('released');
     expect((await ledger(context)).status).toBe('released');
   });
   it.each(['partial', 'pending'])('leaves %s fulfillment reserved with an explicit deferred error', async (status) => {
     const adapter = port(2, { evaluateFulfillment: ({ operation }) => ({ ...fulfillment({ operation }), status, artifacts: [] }) });
     const context = await reserve(adapter);
-    await expect(adapter.settle(context)).rejects.toMatchObject({ code: 'settlement_deferred' });
-    await expect(adapter.release({ ...context, error: { code: 'settlement_deferred' } })).rejects.toMatchObject({ code: 'settlement_deferred' });
+    expect((await adapter.settle(context)).status).toBe('reconciliation_required');
+    expect((await adapter.release({ ...context, error: { code: 'settlement_deferred' } })).status).toBe('reconciliation_required');
     expect((await ledger(context)).status).toBe('generating');
     expect((await ledger(context)).reserved_credits).toBe(2);
   });
@@ -84,10 +84,10 @@ describe('fixed operation policy and ledger adapter', () => {
     await expect(port(2, { policy }).settle(context)).rejects.toThrow();
     expect((await ledger(context)).settled_credits).toBe(0);
   });
-  it('validates zero-fee decisions but refuses unsupported execution', async () => {
+  it('persists zero-fee success without charging', async () => {
     const adapter = port(0);
     const context = await reserve(adapter);
-    await expect(adapter.settle(context)).rejects.toMatchObject({ code: 'no_charge_unsupported' });
+    expect((await adapter.settle(context)).status).toBe('no_charge');
     expect((await db.query('SELECT * FROM credit_transactions WHERE user_id=$1 AND transaction_type=\'usage_charge\'', [user.id])).rows).toHaveLength(0);
   });
   it('rejects another account, swapped reservation and foreign artifacts', async () => {
