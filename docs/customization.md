@@ -72,6 +72,32 @@ provider requests outside that transaction. Public core source stays unchanged.
 Unsupported image/video capabilities remain rejected before reservation; actual
 media adapters belong to Epic #14.
 
+For example, select a fixed report price and require a nonempty text delivery:
+
+```js
+import { createAiProduct } from '../server/domain/aiProduct.js';
+import { createServer } from '../server/index.js';
+
+const aiProduct = createAiProduct({
+  env: process.env,
+  configuration: { strategy: 'fixed', featureKey: 'report_result', credits: 5 },
+  evaluateFulfillment: ({ operation, output }) => ({
+    accountId: operation.accountId, ruleVersion: '1', resultId: operation.id,
+    status: output?.trim() ? 'ready' : 'failed',
+    artifacts: output?.trim() ? [{ id: operation.id, accountId: operation.accountId,
+      type: 'text', state: 'available', text: output }] : [],
+  }),
+});
+const app = createServer({ db, aiProduct });
+```
+
+Here `db` is the application's PostgreSQL pool. The default result writer remains
+in use. To choose token pricing, replace only `configuration` with
+`{strategy:'token', featureKey:'token_result', inputRate:{credits:1,tokens:1000},
+outputRate:{credits:2,tokens:1000}}`. A custom pricing policy can be injected using
+`policy`; it must match the configured strategy ID and return the validated quote
+and decision contracts described in [Pricing and settlement](architecture/pricing-and-settlement.md).
+
 Two local examples use the same route and core:
 
 ```sh
@@ -86,6 +112,8 @@ Open http://localhost:5173. Stop the fixed API with Ctrl-C before running
 temporary schema, applies migrations, seeds a development guest and cleans up its
 schema on graceful shutdown. Only loopback PostgreSQL URLs are accepted; production
 mode is rejected. An occupied API port fails instead of starting another port.
+To select a different port explicitly, run `EXAMPLE_PORT=3001 npm run example:fixed`
+and `VITE_API_PROXY_TARGET=http://127.0.0.1:3001 npm run dev:web`.
 
 Both examples use synthetic provider fixtures without keys. The token example
 explicitly enables frozen budget-ceiling estimation; displayed charges reflect

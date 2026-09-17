@@ -8,6 +8,9 @@ describe('trusted AI product configuration', () => {
     const token = createAiProduct({ env: { PRICING_STRATEGY: 'token' } });
     expect(token.publicPricing).toMatchObject({ strategy: 'token', inputRate: { credits: 1, tokens: 1000 }, outputRate: { credits: 2, tokens: 1000 } });
     expect(token.publicPricing.reserveCredits).toBe(27);
+    expect(token.publicPricing.missingUsage).toBe('defer');
+    expect(createAiProduct({ configuration: { strategy: 'token', featureKey: 'estimate_example',
+      inputRate: { credits: 1, tokens: 1000 }, outputRate: { credits: 2, tokens: 1000 }, allowEstimates: true } }).publicPricing.missingUsage).toBe('estimate');
   });
   it('supports distinct product feature keys and frozen configuration without shared mutation', () => {
     const configuration = { strategy: 'fixed', featureKey: 'report_result', credits: 5 };

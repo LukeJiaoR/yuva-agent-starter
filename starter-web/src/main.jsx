@@ -253,6 +253,8 @@ function App() {
                   ? `Input: ${(quote || pricing).inputRate.credits} / ${(quote || pricing).inputRate.tokens} tokens · Output: ${(quote || pricing).outputRate.credits} / ${(quote || pricing).outputRate.tokens} tokens`
                   : 'Pricing unavailable'}
               {(quote || pricing) && ` · Maximum ${(quote || pricing).authorizedCredits} credits`}
+              {(quote || pricing)?.strategy === 'token' && (quote || pricing).missingUsage === 'estimate'
+                && ' · Missing measurements use frozen budget estimates'}
             </p>
             <button className="primary-button" type="button" onClick={askAgent} disabled={busy || !question.trim() || !pricing}>
               <PaperPlaneTilt size={19} weight="fill" aria-hidden="true" />

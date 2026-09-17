@@ -33,10 +33,15 @@ export function createAiProduct({ env = process.env, configuration, policy, eval
     provider, model, executionLimits, capabilities, featureKey: config.featureKey, policy: pricing,
     publicPricing: { version: 1, strategy: pricing.id, policyVersion: pricing.version, unit: 'credit',
       reserveCredits: preview.reserveCredits, authorizedCredits: preview.authorizedCredits,
+      missingUsage: preview.missingUsage,
       ...(config.strategy === 'fixed' ? { credits: preview.terms.credits } : { inputRate: preview.terms.rates.input, outputRate: preview.terms.rates.output }),
       capabilities: [{ taskType: 'text', mode: 'stream' }] },
     createBilling({ db, operationStore, usageStore }) {
-      return createOperationBillingPort({ db, operationStore, policy: pricing, executionLimits,
+      return createOperationBillingPort({ db, operationStore: { ...operationStore,
+        async reserve(facts) {
+          const result = await operationStore.reserve(facts);
+          return { ...result, requiredCredits: facts.quote.reserveCredits };
+        } }, policy: pricing, executionLimits,
         readUsage: (identity) => usageStore.summary(identity), metadata: ({ request }) => ({ conversation_id: request.conversationId }),
         evaluateFulfillment: evaluateFulfillment ?? (({ operation, output }) => ({ status: 'ready', accountId: operation.accountId,
           ruleVersion: '1', resultId: operation.id, artifacts: [{ id: operation.id, accountId: operation.accountId, type: 'text', state: 'available', text: output }] })),

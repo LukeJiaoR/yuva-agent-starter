@@ -59,6 +59,22 @@ The default chat route persists new operations and frozen quotes through the inj
 operation store; it does not fabricate quotes for historical requests. Failed reservation creates
 no runnable operation. An accepted operation retains its original quote on retry.
 
+## Product composition examples
+
+`productComposition.test.js` checks explicit strategy selection, default fixed
+2-credit compatibility, immutable configuration, invalid configuration and safe
+public pricing. The PostgreSQL chat suite verifies token reservation, actual
+settlement and replay through the composed application.
+
+Run `npm run example:fixed` and `npm run example:token` sequentially with a local
+`TEST_DATABASE_URL` to exercise independent temporary schemas. Both use synthetic
+provider fixtures; the token example explicitly prices frozen ceiling estimates.
+Use `EXAMPLE_PORT` and matching `VITE_API_PROXY_TARGET` when selecting another port.
+Verify `/api/pricing`, submit a request, replay the same request ID, and stop each
+example with SIGTERM to verify schema cleanup. See [Customization](customization.md).
+`scripts/product-examples.test.js` automates those runnable-process checks against
+PostgreSQL and asserts that importing the app factory starts no listener.
+
 ## Durable usage
 
 `fixedPricing.test.js` verifies frozen prices across configuration changes,

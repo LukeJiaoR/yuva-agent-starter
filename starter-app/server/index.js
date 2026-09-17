@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
+import { pathToFileURL } from 'node:url';
 import { createDatabasePool } from './db/index.js';
 import { DomainKnowledgeAdapter } from './domain/adapter.js';
 import { createAiProduct } from './domain/aiProduct.js';
@@ -94,7 +95,8 @@ export function createServer({
   return app;
 }
 
-if (process.env.NODE_ENV !== 'test' && !process.env.TEST_MODE) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+  && process.env.NODE_ENV !== 'test' && !process.env.TEST_MODE) {
   const port = process.env.PORT || 3000;
   const app = createServer();
   app.listen(port, () => {

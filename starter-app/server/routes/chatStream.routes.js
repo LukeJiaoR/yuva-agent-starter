@@ -299,8 +299,6 @@ export function createChatStreamRoutes({
     },
 
     async reserve({ request, user, db: activeDb }) {
-      const requiredCredits = product.policy.quote(request.operationInput, executionLimits).reserveCredits;
-
       const result = await operationBilling.reserve({ request, user });
       if (result.kind === 'existing') {
         return existingOperation(result.operation);
@@ -316,7 +314,7 @@ export function createChatStreamRoutes({
           body: {
             error: 'insufficient_credits',
             code: 'insufficient_credits',
-            required_credits: requiredCredits,
+            required_credits: result.requiredCredits,
             available_credits: result.balance?.available ?? 0,
           },
           balance: result.balance,

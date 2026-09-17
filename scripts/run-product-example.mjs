@@ -8,6 +8,8 @@ import { grantCredits } from '@yuva/billing-core';
 const strategy = process.argv[2];
 if (!['fixed','token'].includes(strategy)) throw new Error('Choose fixed or token');
 if (process.env.NODE_ENV === 'production') throw new Error('Examples are development-only');
+const port = Number(process.env.EXAMPLE_PORT || 3000);
+if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('EXAMPLE_PORT must be a valid TCP port');
 const url = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 if (!url) throw new Error('A local TEST_DATABASE_URL is required');
 const parsed = new URL(url);
@@ -37,8 +39,9 @@ try {
       pricing: { strategy: 'token', featureKey: 'token_example', inputRate: { credits: 1, tokens: 1000 }, outputRate: { credits: 2, tokens: 1000 },
         allowEstimates: true, limits: { maxInputTokens: 4000, maxOutputTokens: 1000 } } } } : {}),
   });
-  server = app.listen(3000, '127.0.0.1');
+  server = app.listen(port, '127.0.0.1');
   await new Promise((resolve, reject) => { server.once('listening', resolve); server.once('error', reject); });
-  console.log(`${strategy} example API: http://localhost:3000 (isolated temporary schema; synthetic fixture)`);
+  console.log(`${strategy} example API: http://localhost:${port} (isolated temporary schema; synthetic fixture)`);
+  console.log(`Temporary schema: ${schema}`);
   for (const signal of ['SIGINT','SIGTERM']) process.once(signal, () => { close().then(() => process.exit(0)); });
 } catch (error) { await close(); throw error; }
