@@ -20,13 +20,14 @@ function sameCost(a, b) {
 }
 export function createUsageStore({ db }) {
   return {
-    async start({ callId, operationId, accountId, attempt, provider, model, requestedMetrics = {}, executionBudget }) {
+    async start({ callId, operationId, accountId, attempt, provider, model, requestedMetrics = {}, executionBudget, expectedEpoch = 0 }) {
       invariant(Number.isSafeInteger(attempt) && attempt > 0);
       invariant(bounded(provider, 80) && bounded(model, 160));
       const requested = validateMetrics(requestedMetrics);
       return withCreditTransaction(db, async (client) => {
         const { rows: [operation] } = await client.query('SELECT * FROM ai_operations WHERE id=$1 AND account_id=$2 FOR UPDATE', [operationId, accountId]);
         invariant(operation, 'operation_not_found', 404);
+        invariant(operation.execution_epoch === expectedEpoch, 'execution_fenced', 409);
         const limits = operation.quote.limits;
         if (limits.paths || executionBudget) {
           invariant(executionBudget && limits.paths, 'execution_authorization_missing', 409);
@@ -86,7 +87,8 @@ export function createUsageStore({ db }) {
         invariant(current, 'call_not_found', 404);
         const { rowCount } = await client.query('INSERT INTO ai_usage_observations(call_id,digest,observation) VALUES($1,$2,$3) ON CONFLICT DO NOTHING', [callId, digest, safe]);
         if (!rowCount) return fromRow(current);
-        invariant(['started', 'unknown', safe.outcome].includes(current.outcome) || safe.outcome === 'unknown', 'call_outcome_conflict', 409);
+        invariant(['started', 'unknown', safe.outcome].includes(current.outcome) || safe.outcome === 'unknown'
+          || current.external_status === 'unknown' && safe.externalStatus === 'completed', 'call_outcome_conflict', 409);
         for (const [name, metric] of Object.entries(metrics)) {
           const old = current.metrics[name];
           if (old?.source === 'provider' && metric.source === 'provider' && old.value !== metric.value) invariant(false, 'provider_usage_conflict', 409);

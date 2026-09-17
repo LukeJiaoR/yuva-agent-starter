@@ -13,6 +13,7 @@
     "node": ">=22 <25"
   },
   "scripts": {
+    "ops:recover": "node scripts/recover-operations.mjs",
     "create": "node scripts/create-web-app.mjs",
     "dev": "concurrently --kill-others --names api,web --prefix-colors blue,green \"npm run dev:api\" \"npm run dev:web\"",
     "dev:api": "npm --prefix starter-app run dev",

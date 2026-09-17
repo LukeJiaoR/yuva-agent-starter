@@ -38,3 +38,5 @@ Durable usage and provenance: [Usage](architecture/usage.md).
 Frozen execution constraints: [Execution budget](architecture/execution-budget.md).
 
 Exact user token rates: [Token pricing](architecture/token-pricing.md).
+
+Recovery commands and ownership: [Operation recovery](architecture/recovery.md).
