@@ -42,3 +42,11 @@ npm run dev
 ```
 
 Then complete the [customization checklist](customization.md), replace the README with product-specific instructions, create a fresh Git repository, and run `npm run check` before the first commit.
+# Selecting a price model
+
+After generating a project, keep pricing and delivery in the application layer.
+The default `PRICING_STRATEGY=fixed` preserves 2 credits. Explicit `token` uses
+the application rates; customize `createAiProduct` configuration for your feature
+key, rates, limits and fulfillment rules. See [Customization](customization.md)
+for executable local examples and callback contracts. Package upgrades never
+replace your product policy or run SQL automatically; see [Core releases](releases.md).

@@ -71,3 +71,19 @@ without a successful `done`. SSE errors include `financial_status` when known.
 Retry the same request identity to inspect state; do not create a new operation to
 recover an unknown submission. A missing result link does not authorize charging
 again; applications regenerate access URLs from an authorized stable storage key.
+# Public pricing
+
+`GET /api/pricing` returns version 1 user-facing strategy, unit, rates, bounded
+reservation and enabled capabilities. It omits provider credentials and costs.
+SSE `start.data.pricing` contains the accepted operation's frozen pricing facts;
+`done.data.credits_used` and `financial_status` describe actual settlement. Replay
+returns the same quote and charge. Fields are additive for older clients.
+
+The web client displays the accepted quote after start and actual charge after
+done. A pending response or uncertain disconnect retains the exact request ID and
+input for “Check result”; it does not create a new billable operation. Confirmed
+preflight rejection allows a new request. Missing usage defaults to review; partial
+delivery follows the frozen fulfillment rule. Expiration rejects a new expired
+quote, never reprices an accepted operation. A local cancellation is not proof of
+external cancellation or a zero charge. Recovery details are in
+[Operation recovery](architecture/recovery.md).

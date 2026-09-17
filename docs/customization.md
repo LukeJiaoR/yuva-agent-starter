@@ -56,3 +56,39 @@ Choose a provider in `starter-app/.env`, add only that provider's required crede
 - Credits settle once and release on every failure path.
 - Auth, CORS, rate limits, secrets, and error redaction match the deployment.
 - `npm run check` passes on Node.js 22 and 24.
+# Product pricing and delivery
+
+`createServer({config:{pricing}, aiProduct})` selects trusted application composition.
+The default is fixed 2 credits. Explicit token configuration supplies integer
+`inputRate` / `outputRate` objects (`credits`, `tokens`), a `featureKey`, and optional
+execution `limits`. Unknown strategies fail at startup. Clients cannot select a
+policy by passing a price in a request.
+
+For custom delivery, construct `createAiProduct({configuration, evaluateFulfillment,
+persistResult})` from `starter-app/server/domain/aiProduct.js` and inject it as
+`aiProduct`. The evaluator returns the versioned account-owned fulfillment
+contract; the persistence callback receives a transaction client. Keep uploads and
+provider requests outside that transaction. Public core source stays unchanged.
+Unsupported image/video capabilities remain rejected before reservation; actual
+media adapters belong to Epic #14.
+
+Two local examples use the same route and core:
+
+```sh
+export TEST_DATABASE_URL='postgresql://user:password@localhost:5432/local_database'
+npm run example:fixed
+# In another terminal:
+npm run dev:web
+```
+
+Open http://localhost:5173. Stop the fixed API with Ctrl-C before running
+`npm run example:token` on the same port 3000. Each API process creates a separate
+temporary schema, applies migrations, seeds a development guest and cleans up its
+schema on graceful shutdown. Only loopback PostgreSQL URLs are accepted; production
+mode is rejected. An occupied API port fails instead of starting another port.
+
+Both examples use synthetic provider fixtures without keys. The token example
+explicitly enables frozen budget-ceiling estimation; displayed charges reflect
+that rule, not a real provider rate or measurement. Production token mode defaults
+to defer on missing actual usage. Interrupted example processes may leave their
+uniquely named `example_fixed_*` / `example_token_*` schemas for operator cleanup.
