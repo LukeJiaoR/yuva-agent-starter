@@ -86,7 +86,7 @@ function copyFilter(source) {
   if (segments.some((name) => ['.git', 'node_modules', 'dist', 'coverage', 'vendor', 'packages', '.release', '.ai-gh-account'].includes(name))) return false;
   if (segments.some((name) => name.startsWith('.env') && name !== '.env.example')) return false;
   if (relative.endsWith('.log') || relative.endsWith('.tgz') || relative.endsWith('.DS_Store')) return false;
-  if (relative.startsWith('scripts/') && (relative.endsWith('.test.js') || relative.endsWith('create-web-app.mjs') || relative.endsWith('release/pack.mjs'))) return false;
+  if (relative.startsWith('scripts/') && (relative.endsWith('.test.js') || relative.endsWith('create-web-app.mjs') || relative.endsWith('release/pack.mjs') || relative.endsWith('release/smoke-consumer.mjs'))) return false;
   if (relative.startsWith('.github/') && relative !== '.github/workflows' && relative !== '.github/workflows/ci.yml') return false;
   return true;
 }
@@ -101,7 +101,7 @@ async function writeGeneratedConfig(target, options, bundle, release) {
   const rootPackage = JSON.parse(await fs.readFile(rootPackagePath, 'utf8'));
   rootPackage.name = appSlug;
   rootPackage.workspaces = ['starter-app', 'starter-web'];
-  for (const name of ['create', 'release:pack', 'test:packages']) delete rootPackage.scripts[name];
+  for (const name of ['create', 'release:pack', 'test:packages', 'smoke:consumer']) delete rootPackage.scripts[name];
   rootPackage.scripts['verify:boundaries'] = 'node scripts/release/verify-consumer.mjs';
   rootPackage.scripts.test = 'npm run verify:boundaries && vitest run';
   await fs.writeFile(rootPackagePath, `${JSON.stringify(rootPackage, null, 2)}\n`);
