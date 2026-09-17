@@ -17,6 +17,8 @@ describe('private release integrity and safe consumer upgrades', () => {
   afterAll(async () => fs.rm(temp, { recursive: true, force: true }));
   it('packs only declared public runtime files with per-component hashes', async () => {
     expect(manifest.packages).toHaveLength(5);
+    expect(manifest.compatibility.starterMigrations).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(manifest.compatibility.automaticMigrations).toBe(false);
     expect((await verifyBundle(bundle, { allowDevelopment: true })).version).toBe('1.2.0');
     expect(manifest.packages.every((p) => p.integrity.startsWith('sha512-'))).toBe(true);
   });

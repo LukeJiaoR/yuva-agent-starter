@@ -25,9 +25,11 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm run check
+      - run: npm run test:acceptance
         env:
           TEST_DATABASE_URL: postgresql://starter:starter@localhost:5432/starter
+      - run: npm run build
+      - run: npm run ops:verify
       - run: npm run release:pack -- --output .release
       - run: node scripts/release/publish.mjs .release
         env:

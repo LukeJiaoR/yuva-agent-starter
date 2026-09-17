@@ -30,8 +30,11 @@ export async function packCore(root, output, { allowDirty = false } = {}) {
   const version = versions[0];
   const lock = await json(path.join(root, 'package-lock.json'));
   const testedDependencies = Object.fromEntries([...new Set(packages.flatMap((p) => Object.keys(p.dependencies)))].map((name) => [name, lock.packages[`node_modules/${name}`]?.version]));
+  const starterMigrations = [1, ...(await fs.readdir(path.join(root, 'scripts/migrations')))
+    .filter((name) => /^\d{3}-.*\.sql$/u.test(name)).sort().map((name) => Number(name.slice(0, 3)))];
+  if (starterMigrations.some((version, index) => version !== index + 1)) throw new Error('Release migrations must be consecutive');
   const manifest = { formatVersion: 1, repository: REPOSITORY, version, tag: `core-v${version}`, sourceCommit,
-    development: Boolean(dirty), compatibility: { node: [22, 24], postgres: [16], ledger: 'existing-credit-ledger-v1', starterMigrations: [1, 2, 3], automaticMigrations: false },
+    development: Boolean(dirty), compatibility: { node: [22, 24], postgres: [16], ledger: 'existing-credit-ledger-v1', starterMigrations, automaticMigrations: false },
     testedDependencies, packages };
   await writeJson(path.join(output, 'manifest.json'), manifest);
   await fs.writeFile(path.join(output, 'manifest.sha256'), digest(await fs.readFile(path.join(output, 'manifest.json')), 'sha256') + '\n');
