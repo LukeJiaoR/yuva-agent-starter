@@ -49,11 +49,13 @@ export function createChatStreamRoutes({
   const capabilities = { taskType: 'text', outputLimit: ['openai', 'anthropic', 'mock'].includes(provider), abort: true };
   const operationBilling = createOperationBillingPort({
     db, operationStore,
+    readUsage: (identity) => usageStore.summary(identity),
+    metadata: ({ request }) => ({ conversation_id: request.conversationId }),
     policy: createFixedOperationPricingPolicy({ credits: PricingCatalog.features.deep_reasoning.credits }),
     executionLimits,
     evaluateFulfillment: ({ operation, output }) => ({
-      status: 'ready', accountId: operation.accountId, ruleVersion: '1', resultId: operation.ledgerRequestId,
-      artifacts: [{ id: operation.ledgerRequestId, accountId: operation.accountId, type: 'text', state: 'available', text: output }],
+      status: 'ready', accountId: operation.accountId, ruleVersion: '1', resultId: operation.id,
+      artifacts: [{ id: operation.id, accountId: operation.accountId, type: 'text', state: 'available', text: output }],
     }),
     persistResult: async ({ client, ledgerRequest, output, providerResult }) => {
       const billableTokens = providerResult?.usage?.source === 'provider' ? providerResult.usage.totalTokens ?? null : null;
@@ -61,8 +63,18 @@ export function createChatStreamRoutes({
         settled_at=NOW(), updated_at=NOW() WHERE id=$1`, [ledgerRequest.id, output, billableTokens]);
       return { id: ledgerRequest.id };
     },
-    metadata: ({ request }) => ({ conversation_id: request.conversationId }),
   });
+  function existingOperation(operation) {
+    const status = operation.financialStatus;
+    if (['settled', 'no_charge'].includes(status) && operation.fulfillment?.status === 'ready') {
+      return { isExisting: true, replayed: true, request: { status: 'settled', financialStatus: status,
+        client_request_id: operation.clientRequestId, assistant_text: operation.fulfillment.artifacts.find((a) => a.type === 'text')?.text || '' } };
+    }
+    if (status === 'released') return { rejected: true, status: 409, code: 'request_released', error: 'Request was released' };
+    return { isExisting: true, statusCode: 202, status: 202,
+      body: { request_id: operation.clientRequestId, status: status === 'reserved' ? 'generating' : status },
+      request: { status: 'generating', client_request_id: operation.clientRequestId } };
+  }
 
   function normalizeRequest(body) {
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -270,8 +282,9 @@ export function createChatStreamRoutes({
       const clientRequestId = request.requestId || request.clientRequestId || request.request_id;
       if (!clientRequestId) return null;
 
-      await operationStore.find({ accountId: user.id, clientRequestId,
+      const operation = await operationStore.find({ accountId: user.id, clientRequestId,
         operation: identity(request, user.id, clientRequestId) });
+      if (operation) return existingOperation(operation);
       {
         const res = await activeDb.query(
           'SELECT * FROM credit_usage_requests WHERE user_id = $1 AND client_request_id = $2',
@@ -311,9 +324,7 @@ export function createChatStreamRoutes({
 
       const result = await operationBilling.reserve({ request, user });
       if (result.kind === 'existing') {
-        const { rows: [existing] } = await activeDb.query('SELECT * FROM credit_usage_requests WHERE id = $1 AND user_id = $2',
-          [result.operation.ledgerRequestId, user.id]);
-        result.request = existing;
+        return existingOperation(result.operation);
       }
       if (result.kind === 'legacy') result.kind = 'existing';
 
@@ -392,6 +403,7 @@ export function createChatStreamRoutes({
       const billableTokens = providerResult?.usage?.source === 'provider'
         ? providerResult.usage.totalTokens ?? null : null;
       const settlement = await operationBilling.settle(context);
+      if (!['settled', 'no_charge'].includes(settlement.status)) return settlement;
 
       // Persist conversation & messages with strict tenant ownership
       if (request?.conversationId) {
@@ -418,20 +430,23 @@ export function createChatStreamRoutes({
       }
 
       return {
-        status: 'settled',
+        status: settlement.status,
         creditsUsed: settlement.creditsUsed,
         billableTokens,
       };
     },
 
     async release(context) {
-      await operationBilling.release(context);
-      return { status: 'released' };
+      return operationBilling.release(context);
     },
+    onFailure: (context) => operationBilling.onFailure(context),
   };
 
   // 6. Stream Port (Completely Request-Scoped with terminal error support)
   const streamPort = {
+    emitPending(emitter, { settlement }) {
+      emitter?.emit?.('pending', { status: settlement.status });
+    },
     createEmitter({ req, res, requestId, pipelineRunId }) {
       if (!res) return null;
       setSseHeaders(res);
@@ -466,6 +481,7 @@ export function createChatStreamRoutes({
         code: publicError.code,
         message: publicError.message,
         retryable: error?.retryable ?? false,
+        financial_status: error?.financialStatus,
       });
     },
 
@@ -527,7 +543,7 @@ export function createChatStreamRoutes({
       return {
         handled: true,
         streamed: true,
-        terminalStatus: 'settled',
+        terminalStatus: existing.financialStatus || 'settled',
         replayed: true,
       };
     },

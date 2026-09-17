@@ -21,7 +21,9 @@ export function operationFromRow(row) {
   return { id: row.id, accountId: row.account_id, clientRequestId: row.client_request_id,
     featureKey: row.feature_key, taskType: row.task_type, mode: row.execution_mode, createdAt: row.created_at,
     inputVersion: row.input_version, fingerprint: row.input_fingerprint, quote: row.quote,
-    ledgerRequestId: row.ledger_request_id, executionStatus: row.execution_status };
+    ledgerRequestId: row.ledger_request_id, executionStatus: row.execution_status,
+    financialStatus: row.financial_status, fulfillmentStatus: row.fulfillment_status,
+    fulfillment: row.fulfillment, decision: row.decision, reconciliationReason: row.reconciliation_reason };
 }
 export function createOperationStore({ db, capabilities, now = () => new Date() }) {
   async function find({ accountId, clientRequestId, operation }, client = db) {
@@ -53,10 +55,11 @@ export function createOperationStore({ db, capabilities, now = () => new Date() 
           : { kind: 'reserved', request: null };
         if (reservation.kind !== 'reserved') return reservation;
         const { rows: [row] } = await client.query(`INSERT INTO ai_operations
-          (id,account_id,client_request_id,feature_key,task_type,execution_mode,input_version,input_fingerprint,quote,ledger_request_id)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10) RETURNING *`,
+          (id,account_id,client_request_id,feature_key,task_type,execution_mode,input_version,input_fingerprint,quote,ledger_request_id,financial_status)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11) RETURNING *`,
         [operation.id, operation.accountId, operation.clientRequestId, operation.featureKey, operation.taskType, operation.mode,
-          operation.inputVersion, operationFingerprint(operation), JSON.stringify(quote), reservation.request?.id || null]);
+          operation.inputVersion, operationFingerprint(operation), JSON.stringify(quote), reservation.request?.id || null,
+          reservation.request ? 'reserved' : 'unreserved']);
         return { ...reservation, operation: operationFromRow(row) };
       });
     },

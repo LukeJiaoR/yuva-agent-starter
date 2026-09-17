@@ -95,7 +95,7 @@ describe('Chat runtime with durable operations and usage (real PostgreSQL)', () 
     expect(response.events.join('')).toContain('event: done');
     expect(provider).toHaveBeenCalledTimes(1);
   });
-  it('stores failures and partial provider facts before releasing, without done or unsafe output', async () => {
+  it('stores failures and partial facts with unknown external outcome for reconciliation', async () => {
     const provider = vi.fn(async ({ onText }) => {
       await onText('Partial unsafe output');
       throw Object.assign(new Error('overloaded'), { code: 'provider_overloaded', providerResult: {
@@ -108,7 +108,8 @@ describe('Chat runtime with durable operations and usage (real PostgreSQL)', () 
     const call = (await facts('failed')).rows[0];
     expect(call.outcome).toBe('failed');
     expect(call.metrics.inputTokens.value).toBe(5);
-    expect((await db.query('SELECT status FROM credit_usage_requests WHERE user_id=$1', [userId])).rows[0].status).toBe('released');
+    expect((await db.query('SELECT financial_status FROM ai_operations WHERE account_id=$1', [userId])).rows[0].financial_status).toBe('reconciliation_required');
+    expect((await db.query('SELECT status FROM credit_usage_requests WHERE user_id=$1', [userId])).rows[0].status).toBe('generating');
   });
   it('does not call the provider when the durable start write fails', async () => {
     const provider = vi.fn();
@@ -150,6 +151,16 @@ describe('Chat runtime with durable operations and usage (real PostgreSQL)', () 
     expect(res.events.join('')).toContain('Legacy reply');
     expect(provider).not.toHaveBeenCalled();
     expect((await facts('legacy')).rows).toHaveLength(0);
+  });
+  it('replays the durable result after post-settlement SSE failure without invoking the model again', async () => {
+    const provider = vi.fn(async ({ onText }) => { await onText('Saved despite disconnect'); return {}; });
+    const handler = route(provider), res = mockResponse();
+    res.write = vi.fn((data) => { if (data.includes('text_delta')) throw new Error('socket failed'); res.events.push(data); });
+    await handler({ user: { id: userId }, body: { question: 'Hello', requestId: 'disconnect' } }, res, vi.fn());
+    expect((await db.query('SELECT financial_status FROM ai_operations WHERE account_id=$1', [userId])).rows[0].financial_status).toBe('settled');
+    const replay = await send(handler, { requestId: 'disconnect' });
+    expect(replay.events.join('')).toContain('Saved despite disconnect');
+    expect(provider).toHaveBeenCalledTimes(1);
   });
   it('isolates conversation history across accounts and concurrent request streams', async () => {
     const otherId = randomUUID(), conversationId = randomUUID();

@@ -30,6 +30,7 @@ export function createUsageStore({ db }) {
         const limits = operation.quote.limits;
         if (limits.paths || executionBudget) {
           invariant(executionBudget && limits.paths, 'execution_authorization_missing', 409);
+          invariant(['reserved', 'unreserved'].includes(operation.financial_status), 'execution_authorization_missing', 409);
           const { resources, kind, retryOf } = executionBudget;
           invariant(['primary', 'retry'].includes(kind) && (kind === 'retry') === Boolean(retryOf), 'execution_retry_invalid', 409);
           invariant(limits.models.includes(model) && limits.paths.some((p) => p.model === model && p.provider === provider), 'execution_path_forbidden', 409);
@@ -38,7 +39,7 @@ export function createUsageStore({ db }) {
           if (operation.ledger_request_id) {
             const { rows: [ledger] } = await client.query('SELECT status FROM credit_usage_requests WHERE id=$1 AND user_id=$2', [operation.ledger_request_id, accountId]);
             invariant(['reserved', 'generating'].includes(ledger?.status), 'execution_authorization_missing', 409);
-          } else invariant(operation.quote.reserveCredits === 0 && operation.execution_status === 'pending', 'execution_authorization_missing', 409);
+          } else invariant(operation.quote.reserveCredits === 0 && ['pending', 'running'].includes(operation.execution_status), 'execution_authorization_missing', 409);
           const { rows: previous } = await client.query('SELECT * FROM ai_provider_calls WHERE operation_id=$1 ORDER BY started_at,id', [operationId]);
           invariant(previous.length < limits.maxCalls, 'execution_calls_exceeded', 409);
           invariant(!previous.some((c) => c.outcome === 'started' || c.external_status === 'unknown'), 'execution_outcome_unknown', 409);
@@ -63,6 +64,7 @@ export function createUsageStore({ db }) {
           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO NOTHING`,
         [callId, operationId, attempt, provider, model, requested, executionBudget?.kind ?? 'primary', executionBudget?.retryOf ?? null, executionBudget?.resources ?? null]);
         invariant(rowCount === 1, 'call_identity_conflict', 409);
+        await client.query("UPDATE ai_operations SET execution_status='running',updated_at=NOW() WHERE id=$1", [operationId]);
       });
     },
     async observe({ callId, accountId, observation }) {

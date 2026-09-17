@@ -94,16 +94,26 @@ resolves the exact policy version and validates the decision against the frozen
 authorization before calling the existing ledger. Provider call count and tokens
 do not determine a fixed operation's fee. Historical `fixed/1` quotes remain valid.
 
-Pending/partial fulfillment and zero-charge execution currently throw explicit
-`settlement_deferred` / `no_charge_unsupported` errors and retain reservations;
-they are not successful responses. Missing policy or fulfillment versions also
-fail closed. Runtime terminal reporting and durable reconciliation for these
-states are part of the later settlement work, not a guarantee of this adapter.
+`createOperationSettlementStore` stages validated candidates, then atomically
+persists the final fulfillment, decision and financial status with the ledger.
+Positive charges use the existing settle mechanism; zero-charge success returns
+any reservation via the release mechanism and stores `no_charge`. Product result
+writers run transaction-locally; upload/download work must finish before this call.
+Text, JSON and stable media references share this path. Best-effort conversations
+remain projections; replay uses the canonical account-scoped fulfillment.
 
-Remaining defects to fix: process-local
-settled flag and catch always reporting released (#11), best-effort conversation
-writes being insufficient for canonical replay (#11), no durable reconciliation
-(#13). Do not encode these defects as required compatibility behavior.
+Pending/partial fulfillment returns `reconciliation_required` and retains funds.
+The runtime emits no successful done/delivery for it. Failures reconcile through
+the injected `onFailure` port; unknown execution or settlement does not trigger a
+blind release. Legacy runtime consumers retain their release hook. A successful
+post-commit delivery error reads the persisted terminal status and leaves charges
+unchanged. Terminal operations reject overwrites from later executors.
+
+COMMIT transport failure is explicitly unknown; server-reported rollback differs.
+The adapter marks nonterminal operations for reconciliation, or observes an already
+committed terminal result. A retry can settle the durable candidate without model
+execution. Recovery worker leases/fencing and operational reconciliation commands
+remain #13; policy/input limits are enforced separately by #10/#12.
 
 The first phase adds validators and characterization tests, preserving the old
 billingPort API. Later phases add stores, policies, budgets and recovery, then
