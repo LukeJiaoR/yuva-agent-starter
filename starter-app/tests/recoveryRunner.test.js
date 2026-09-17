@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { beforeAll, afterAll, beforeEach, describe, it, expect, vi } from 'vitest';
 import { createOperationStore, createOperationRecoveryStore, createOperationSettlementStore,
-  createRecoveryRunner, createFixedOperationPricingPolicy, grantCredits, getCreditBalance } from '@yuva/billing-core';
+  createRecoveryRunner, createFixedOperationPricingPolicy, createTokenPricingPolicy, grantCredits, getCreditBalance } from '@yuva/billing-core';
 import { createUsageStore } from '../server/stores/usageStore.js';
 import { isolatedDatabase, quoteFixture, operationFixture } from './helpers/database.js';
 
@@ -173,5 +173,24 @@ describe('operation recovery runner', () => {
     await expect(usage.observe({ callId, accountId, observation: { outcome: 'failed', externalStatus: 'completed', metrics: {} } }))
       .rejects.toMatchObject({ code: 'call_outcome_conflict' });
     expect((await usage.summary(identity())).calls).toHaveLength(1);
+  });
+  it('fills missing token usage through recovery and settles original rates after a process restart', async () => {
+    const policy = createTokenPricingPolicy({ inputRate: { credits: 1, tokens: 1000 }, outputRate: { credits: 2, tokens: 1000 } });
+    const input = operationFixture(accountId);
+    const limits = { models: ['fixture'], paths: [{ provider: 'fixture', model: 'fixture' }], maxCalls: 1,
+      maxRetries: 0, maxInputTokens: 2000, maxOutputTokens: 1000, deadlineMs: 30000 };
+    ({ operation } = await createOperationStore({ db }).reserve({ operation: input, quote: policy.quote(input, limits) }));
+    const callId = randomUUID();
+    await usage.start({ ...identity(), callId, provider: 'fixture', model: 'fixture', attempt: 1,
+      executionBudget: { kind: 'primary', retryOf: null, resources: { inputTokens: 2000, outputTokens: 1000 } } });
+    await usage.observe({ callId, accountId, observation: { outcome: 'succeeded', metrics: {} } });
+    await settlement.stage({ ...identity(), fulfillment: result() }); await expire();
+    const recovered = createRecoveryRunner({ recoveryStore: createOperationRecoveryStore({ db }), settlementStore: createOperationSettlementStore({ db }),
+      usageStore: createUsageStore({ db }), resolvePolicy: () => createTokenPricingPolicy({ inputRate: { credits: 99, tokens: 1 }, outputRate: { credits: 99, tokens: 1 } }),
+      inspectExecution: async () => ({ status: 'completed', observations: [{ callId, observation: { outcome: 'succeeded', metrics: {
+        inputTokens: { value: 2000, unit: 'token', source: 'provider' }, outputTokens: { value: 1000, unit: 'token', source: 'provider' } } } }] }) });
+    expect((await recovered.run({ dryRun: false, operationId: operation.id })).outcomes[0].action).toBe('settled');
+    expect((await settlement.read(identity())).creditsUsed).toBe(4);
+    expect((await usage.history({ callId, accountId }))).toHaveLength(2);
   });
 });
