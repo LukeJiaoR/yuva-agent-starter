@@ -6,8 +6,8 @@ Owner: repository maintainers. Decision: Epic #15.
 The `yuva-agent-starter/packages` tree is the sole editable source of the five
 `@yuva/*` components. Consumers install immutable package artifacts by version and
 integrity. Product-specific domain code, UI, pricing, schema and deployment state
-remain product-owned. Pending Epic #1 interfaces are not promoted to complete
-pricing/recovery features by this ownership change.
+remain product-owned. Core 1.2.0 adds the completed Epic #1 pricing/recovery contracts; products opt
+into the new persistence and composition through their own reviewed changes.
 
 ## Reconciled baseline
 
@@ -62,11 +62,11 @@ Node versions and schema compatibility travel in a release manifest.
 
 The ledger API remains compatible with both existing product and starter ledger
 schemas. Starter operations (introduced by #5) require starter migration 2 only
-when used; durable usage in the 1.2.0 development line requires migration 3
-for the starter application. Existing consumers remain pinned to 1.1.0. Installing a core package never runs SQL, migrates a product database,
+when used; the complete 1.2.0 starter composition requires migrations 1–6
+for operation, usage, budget, settlement and recovery persistence. Existing consumers remain pinned to 1.1.0. Installing a core package never runs SQL, migrates a product database,
 changes user prices, or deploys an application. Each product owns its migration
 sequence; rollback uses a compatible application version and a tested data restore
 plan when needed. A new package release never rewrites historical quotes.
 
-This first release does not claim #1's pending settlement/recovery work complete.
-Those remain separately versioned changes when #1 resumes.
+The 1.2.0 release adds settlement/recovery without replacing consumer-owned
+schemas or activating media execution. See the versioned release notes.
