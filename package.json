@@ -33,7 +33,8 @@
     "check": "npm test && npm run build",
     "release:pack": "node scripts/release/pack.mjs",
     "core:upgrade": "node scripts/release/upgrade.mjs",
-    "core:verify": "node scripts/release/verify-consumer.mjs"
+    "core:verify": "node scripts/release/verify-consumer.mjs",
+    "smoke:consumer": "node scripts/release/smoke-consumer.mjs"
   },
   "dependencies": {
     "dotenv": "^16.6.1",

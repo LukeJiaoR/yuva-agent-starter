@@ -28,3 +28,5 @@ Pricing and lifecycle contracts: [Operations, pricing and settlement](architectu
 Core ownership and extension seams: [Core ownership](architecture/core-ownership.md).
 
 Core release and upgrade procedure: [Private versioned artifacts](releases.md).
+
+Consumer upgrade evidence and ownership: [Consumer migrations](maintenance/consumer-migration.md).
