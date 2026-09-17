@@ -45,6 +45,14 @@ export function validateLimits(limits) {
   for (const field of ['maxInputTokens', 'maxOutputTokens', 'maxImages', 'maxDurationMs']) {
     if (limits[field] !== undefined) invariant(Number.isSafeInteger(limits[field]) && limits[field] > 0 && limits[field] <= MAX_CREDITS);
   }
+  for (const field of ['maxTotalInputTokens', 'maxTotalOutputTokens']) {
+    if (limits[field] !== undefined) invariant(Number.isSafeInteger(limits[field]) && limits[field] > 0 && limits[field] <= MAX_CREDITS);
+  }
+  if (limits.paths !== undefined) {
+    invariant(Array.isArray(limits.paths) && limits.paths.length > 0);
+    for (const path of limits.paths) { string(path.provider); string(path.model); invariant(limits.models.includes(path.model)); }
+  }
+  if (limits.specs !== undefined) object(limits.specs);
   return limits;
 }
 export function validateQuote(quote) {

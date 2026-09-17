@@ -84,6 +84,17 @@ describe('Chat runtime with durable operations and usage (real PostgreSQL)', () 
     expect(response.events.join('')).toContain('event: done');
     expect((await db.query('SELECT settled_credits FROM credit_usage_requests WHERE user_id=$1', [userId])).rows[0].settled_credits).toBe(2);
   });
+  it('passes frozen output caps to the default provider boundary', async () => {
+    const provider = vi.fn(async ({ onText, options, signal }) => {
+      expect(options.maxOutputTokens).toBe(1024);
+      expect(options.maxOutputTokensCap).toBe(1024);
+      expect(signal).toBeInstanceOf(AbortSignal);
+      await onText('Bounded result'); return {};
+    });
+    const response = await send(route(provider));
+    expect(response.events.join('')).toContain('event: done');
+    expect(provider).toHaveBeenCalledTimes(1);
+  });
   it('stores failures and partial provider facts before releasing, without done or unsafe output', async () => {
     const provider = vi.fn(async ({ onText }) => {
       await onText('Partial unsafe output');

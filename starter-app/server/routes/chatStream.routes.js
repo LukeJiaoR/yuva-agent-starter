@@ -8,6 +8,8 @@ import {
   streamProviderText,
   countUnicodeTokens,
   createMeteredProvider,
+  createBudgetedProvider,
+  executionRequest,
   createSyntheticProviderResult,
 } from '@yuva/ai-engine';
 import { allocateContextBudget } from '@yuva/context-engine';
@@ -42,10 +44,13 @@ export function createChatStreamRoutes({
     input: { question: input.question, subject: input.subject || 'Default Subject', parameters: input.parameters || {},
       conversationId: input.conversationId || input.conversation_id || null, domainKey: adapter.domainKey },
   });
+  const executionLimits = { models: [model], paths: [{ provider, model }], maxCalls: 1, maxRetries: 0,
+    maxInputTokens: 24000, maxOutputTokens: 1024, deadlineMs: 60000 };
+  const capabilities = { taskType: 'text', outputLimit: ['openai', 'anthropic', 'mock'].includes(provider), abort: true };
   const operationBilling = createOperationBillingPort({
     db, operationStore,
     policy: createFixedOperationPricingPolicy({ credits: PricingCatalog.features.deep_reasoning.credits }),
-    executionLimits: { models: [model], maxCalls: 1, maxRetries: 0, maxInputTokens: 6000, maxOutputTokens: 1024, deadlineMs: 60000 },
+    executionLimits,
     evaluateFulfillment: ({ operation, output }) => ({
       status: 'ready', accountId: operation.accountId, ruleVersion: '1', resultId: operation.ledgerRequestId,
       artifacts: [{ id: operation.ledgerRequestId, accountId: operation.accountId, type: 'text', state: 'available', text: output }],
@@ -496,6 +501,7 @@ export function createChatStreamRoutes({
         messages: options.messages || [{ role: 'user', content: options.userPrompt }],
         onText: options.onText,
         signal: options.signal || options.abortSignal,
+        options: options.options,
       });
     },
 
@@ -529,6 +535,9 @@ export function createChatStreamRoutes({
 
   // Initialize Generic Agent Runtime
   const runtime = createAgentRuntime({
+    prepareBeforeReserve: true,
+    executionPort: { preflight: ({ promptPayload }) => executionRequest({ taskType: 'text', limits: executionLimits,
+      provider, model, input: promptPayload, capabilities }) },
     domainPort,
     contextPort,
     promptPort,
@@ -537,8 +546,9 @@ export function createChatStreamRoutes({
     streamPort,
     usagePort: {
       invoke({ invoke, options, reservation }) {
-        return createMeteredProvider({ store: usageStore, operation: reservation.operation, provider, model,
-          attempt: reservation.request?.attempt_count || 1, invoke })(options);
+        const metered = createMeteredProvider({ store: usageStore, operation: reservation.operation, provider, model,
+          attempt: reservation.request?.attempt_no || 1, invoke });
+        return createBudgetedProvider({ operation: reservation.operation, provider, model, capabilities, invoke: metered })(options);
       },
     },
   });

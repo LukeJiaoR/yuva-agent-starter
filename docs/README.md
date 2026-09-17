@@ -34,3 +34,5 @@ Consumer upgrade evidence and ownership: [Consumer migrations](maintenance/consu
 Runtime configuration, service lifecycle and backup/restore: [Operations](maintenance/operations.md).
 
 Durable usage and provenance: [Usage](architecture/usage.md).
+
+Frozen execution constraints: [Execution budget](architecture/execution-budget.md).
