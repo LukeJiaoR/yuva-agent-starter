@@ -11,9 +11,11 @@ function result(row, replay = false) {
 /** Short atomic transition over the existing ledger and a product-independent canonical result. */
 export function createOperationSettlementStore({ db }) {
   const read = async ({ operationId, accountId }) => {
-    const { rows: [row] } = await db.query('SELECT * FROM ai_operations WHERE id=$1 AND account_id=$2', [operationId, accountId]);
+    const { rows: [row] } = await db.query(`SELECT o.*,r.status AS ledger_status,recovery_deadline_at<=clock_timestamp() AS recovery_expired FROM ai_operations o
+      LEFT JOIN credit_usage_requests r ON r.id=o.ledger_request_id AND r.user_id=o.account_id
+      WHERE o.id=$1 AND o.account_id=$2`, [operationId, accountId]);
     invariant(row, 'operation_not_found', 404);
-    return result(row, terminal(row.financial_status));
+    return { ...result(row, terminal(row.financial_status)), ledgerStatus: row.ledger_status };
   };
   async function transact(identity, callback) {
     return withCreditTransaction(db, async (client) => {
@@ -31,6 +33,21 @@ export function createOperationSettlementStore({ db }) {
   }
   return {
     read,
+    async reconcileLedger({ operationId, accountId, expectedEpoch = 0 }) {
+      return transact({ operationId, accountId, expectedEpoch }, async (client, row) => {
+        if (!row.ledger_request_id) return result(row);
+        const { rows: [ledger] } = await client.query('SELECT * FROM credit_usage_requests WHERE id=$1 AND user_id=$2 FOR UPDATE', [row.ledger_request_id, accountId]);
+        invariant(ledger, 'ledger_request_missing', 409);
+        if (!['settled', 'released'].includes(ledger.status)) return result(row);
+        // Repair only from established ledger facts. Never rerun the original debit.
+        const decision = ledger.status === 'settled'
+          ? { action: 'settle', credits: ledger.settled_credits, reason: 'ledger_reconciled' }
+          : { action: 'release', reason: 'ledger_reconciled' };
+        const { rows: [updated] } = await client.query(`UPDATE ai_operations SET financial_status=$2,decision=$3,
+          reconciliation_reason=NULL,updated_at=NOW() WHERE id=$1 RETURNING *`, [row.id, ledger.status, decision]);
+        return result(updated, true);
+      });
+    },
     async stage({ operationId, accountId, fulfillment, expectedEpoch = 0 }) {
       return transact({ operationId, accountId, expectedEpoch }, async (client, row) => {
         validateFulfillment(fulfillment, accountId);

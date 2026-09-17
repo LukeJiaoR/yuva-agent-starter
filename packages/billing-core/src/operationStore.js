@@ -25,7 +25,8 @@ export function operationFromRow(row) {
     financialStatus: row.financial_status, fulfillmentStatus: row.fulfillment_status,
     fulfillment: row.fulfillment, decision: row.decision, reconciliationReason: row.reconciliation_reason,
     executionEpoch: row.execution_epoch, leaseOwner: row.lease_owner, leaseExpiresAt: row.lease_expires_at,
-    recoveryAttempts: row.recovery_attempts, nextRecoveryAt: row.next_recovery_at, manualReview: row.manual_review };
+    recoveryAttempts: row.recovery_attempts, nextRecoveryAt: row.next_recovery_at, manualReview: row.manual_review,
+    recoveryPolicy: row.recovery_policy, recoveryDeadlineAt: row.recovery_deadline_at, recoveryExpired: row.recovery_expired === true };
 }
 export function createOperationStore({ db, capabilities, now = () => new Date() }) {
   async function find({ accountId, clientRequestId, operation }, client = db) {
@@ -49,6 +50,10 @@ export function createOperationStore({ db, capabilities, now = () => new Date() 
           return { kind: 'legacy', request: legacy }; // Never synthesize a quote for history.
         }
         validateQuote(quote);
+        const recoveryPolicy = quote.terms.recoveryPolicy ?? { version: '1', maxAgeMs: 604800000, onExpiry: 'waive' };
+        invariant(recoveryPolicy.version === '1' && recoveryPolicy.onExpiry === 'waive'
+          && Number.isSafeInteger(recoveryPolicy.maxAgeMs) && recoveryPolicy.maxAgeMs > 0 && recoveryPolicy.maxAgeMs <= 31536000000,
+        'invalid_recovery_policy');
         invariant(Date.parse(quote.expiresAt) > now().getTime(), 'quote_expired', 409);
         const reservation = quote.reserveCredits > 0
           ? await reserveFeatureCredits({ db: client, userId: operation.accountId, featureKey: operation.featureKey,
@@ -57,11 +62,11 @@ export function createOperationStore({ db, capabilities, now = () => new Date() 
           : { kind: 'reserved', request: null };
         if (reservation.kind !== 'reserved') return reservation;
         const { rows: [row] } = await client.query(`INSERT INTO ai_operations
-          (id,account_id,client_request_id,feature_key,task_type,execution_mode,input_version,input_fingerprint,quote,ledger_request_id,financial_status)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11) RETURNING *`,
+          (id,account_id,client_request_id,feature_key,task_type,execution_mode,input_version,input_fingerprint,quote,ledger_request_id,financial_status,recovery_policy,recovery_deadline_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,clock_timestamp()+$13*interval '1 millisecond') RETURNING *`,
         [operation.id, operation.accountId, operation.clientRequestId, operation.featureKey, operation.taskType, operation.mode,
           operation.inputVersion, operationFingerprint(operation), JSON.stringify(quote), reservation.request?.id || null,
-          reservation.request ? 'reserved' : 'unreserved']);
+          reservation.request ? 'reserved' : 'unreserved', recoveryPolicy, recoveryPolicy.maxAgeMs]);
         const { rows: [leased] } = await client.query(`UPDATE ai_operations SET lease_expires_at=created_at+
           ($2::bigint+60000)*interval '1 millisecond' WHERE id=$1 RETURNING *`, [row.id, quote.limits.deadlineMs]);
         return { ...reservation, operation: operationFromRow(leased) };

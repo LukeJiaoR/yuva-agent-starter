@@ -9,23 +9,28 @@ export function createOperationRecoveryStore({ db, leaseMs = 30000, retryDelayMs
   invariant(Number.isSafeInteger(retryDelayMs) && retryDelayMs > 0);
   invariant(Number.isSafeInteger(maxAttempts) && maxAttempts > 0 && maxAttempts <= 100);
   const pending = "financial_status NOT IN ('settled','no_charge','released')";
-  const due = `${pending} AND NOT manual_review AND lease_expires_at<=clock_timestamp() AND next_recovery_at<=clock_timestamp()`;
+  const due = `${pending} AND (NOT manual_review OR recovery_deadline_at<=clock_timestamp())
+    AND lease_expires_at<=clock_timestamp() AND (next_recovery_at<=clock_timestamp() OR recovery_deadline_at<=clock_timestamp())`;
   return {
-    async list({ operationId = null, limit = 20 } = {}) {
+    async list({ operationId = null, limit = 20, review = false } = {}) {
       invariant(Number.isInteger(limit) && limit > 0 && limit <= 100);
-      const { rows } = await db.query(`SELECT * FROM ai_operations WHERE ${due}
+      invariant(typeof review === 'boolean' && (!review || operationId), 'review_requires_operation');
+      const filter = review ? `${pending} AND lease_expires_at<=clock_timestamp()` : due;
+      const { rows } = await db.query(`SELECT *,recovery_deadline_at<=clock_timestamp() AS recovery_expired FROM ai_operations WHERE ${filter}
         AND ($1::uuid IS NULL OR id=$1) ORDER BY next_recovery_at,id LIMIT $2`, [operationId, limit]);
       return rows.map(operationFromRow);
     },
-    async claim({ operationId, owner = randomUUID() }) {
+    async claim({ operationId, owner = randomUUID(), review = false }) {
       invariant(typeof owner === 'string' && owner.length > 0 && owner.length <= 120);
       return withCreditTransaction(db, async (client) => {
-        const { rows: [row] } = await client.query(`SELECT * FROM ai_operations WHERE id=$1 AND ${due} FOR UPDATE SKIP LOCKED`, [operationId]);
+        invariant(typeof review === 'boolean');
+        const filter = review ? `${pending} AND lease_expires_at<=clock_timestamp()` : due;
+        const { rows: [row] } = await client.query(`SELECT * FROM ai_operations WHERE id=$1 AND ${filter} FOR UPDATE SKIP LOCKED`, [operationId]);
         if (!row) return null;
         const { rows: [claimed] } = await client.query(`UPDATE ai_operations SET execution_epoch=execution_epoch+1,
           lease_owner=$2,lease_expires_at=clock_timestamp()+$3*interval '1 millisecond',recovery_attempts=recovery_attempts+1,
           updated_at=NOW() WHERE id=$1 RETURNING *`, [operationId, owner, leaseMs]);
-        await client.query("INSERT INTO ai_recovery_events(operation_id,execution_epoch,action) VALUES($1,$2,'claimed')", [operationId, claimed.execution_epoch]);
+        await client.query('INSERT INTO ai_recovery_events(operation_id,execution_epoch,action) VALUES($1,$2,$3)', [operationId, claimed.execution_epoch, review ? 'manual_claimed' : 'claimed']);
         return operationFromRow(claimed);
       }, { trackCommitOutcome: true });
     },
