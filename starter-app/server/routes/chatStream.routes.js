@@ -13,8 +13,8 @@ import {
 import { allocateContextBudget } from '@yuva/context-engine';
 import {
   createOperationStore,
-  settleFeatureCredits,
-  releaseFeatureCredits,
+  createFixedOperationPricingPolicy,
+  createOperationBillingPort,
   getCreditBalance,
   assertCapability,
 } from '@yuva/billing-core';
@@ -42,13 +42,21 @@ export function createChatStreamRoutes({
     input: { question: input.question, subject: input.subject || 'Default Subject', parameters: input.parameters || {},
       conversationId: input.conversationId || input.conversation_id || null, domainKey: adapter.domainKey },
   });
-  const quote = () => ({
-    contractVersion: 1, policyId: 'fixed', policyVersion: '1', unit: 'credit',
-    reserveCredits: PricingCatalog.features.deep_reasoning.credits, authorizedCredits: PricingCatalog.features.deep_reasoning.credits,
-    terms: { credits: PricingCatalog.features.deep_reasoning.credits, provider },
-    limits: { models: [model], maxCalls: 1, maxRetries: 0, maxInputTokens: 6000, maxOutputTokens: 1024, deadlineMs: 60000 },
-    billingScope: 'successful_calls', missingUsage: 'defer', fulfillmentVersion: '1',
-    createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 300000).toISOString(),
+  const operationBilling = createOperationBillingPort({
+    db, operationStore,
+    policy: createFixedOperationPricingPolicy({ credits: PricingCatalog.features.deep_reasoning.credits }),
+    executionLimits: { models: [model], maxCalls: 1, maxRetries: 0, maxInputTokens: 6000, maxOutputTokens: 1024, deadlineMs: 60000 },
+    evaluateFulfillment: ({ operation, output }) => ({
+      status: 'ready', accountId: operation.accountId, ruleVersion: '1', resultId: operation.ledgerRequestId,
+      artifacts: [{ id: operation.ledgerRequestId, accountId: operation.accountId, type: 'text', state: 'available', text: output }],
+    }),
+    persistResult: async ({ client, ledgerRequest, output, providerResult }) => {
+      const billableTokens = providerResult?.usage?.source === 'provider' ? providerResult.usage.totalTokens ?? null : null;
+      await client.query(`UPDATE credit_usage_requests SET assistant_text=$2, billable_tokens=$3,
+        settled_at=NOW(), updated_at=NOW() WHERE id=$1`, [ledgerRequest.id, output, billableTokens]);
+      return { id: ledgerRequest.id };
+    },
+    metadata: ({ request }) => ({ conversation_id: request.conversationId }),
   });
 
   function normalizeRequest(body) {
@@ -296,7 +304,7 @@ export function createChatStreamRoutes({
     async reserve({ request, user, db: activeDb }) {
       const requiredCredits = PricingCatalog.features.deep_reasoning.credits;
 
-      const result = await operationStore.reserve({ operation: request.operationInput, quote: quote() });
+      const result = await operationBilling.reserve({ request, user });
       if (result.kind === 'existing') {
         const { rows: [existing] } = await activeDb.query('SELECT * FROM credit_usage_requests WHERE id = $1 AND user_id = $2',
           [result.operation.ledgerRequestId, user.id]);
@@ -366,40 +374,19 @@ export function createChatStreamRoutes({
       return {
         kind: 'reserved',
         operation: result.operation,
-        reservedCredits: requiredCredits,
+        reservedCredits: result.operation.quote.reserveCredits,
         reservationId: result.request?.id,
         request: result.request,
         balance: result.balance,
       };
     },
 
-    async settle({ request, reservation, user, db: activeDb, providerResult, output, rawOutput }) {
-      const textToSave = output || rawOutput || '';
+    async settle(context) {
+      const { request, user, db: activeDb, providerResult, output } = context;
+      const textToSave = output;
       const billableTokens = providerResult?.usage?.source === 'provider'
         ? providerResult.usage.totalTokens ?? null : null;
-      const creditsUsed = reservation?.reservedCredits || PricingCatalog.features.deep_reasoning.credits;
-
-      await settleFeatureCredits({
-        db: activeDb,
-        userId: user.id,
-        requestId: reservation?.reservationId || reservation?.request?.id,
-        creditsUsed,
-        persistResult: async (client, usageRequest) => {
-          await client.query(
-            `UPDATE credit_usage_requests
-                SET assistant_text = $2,
-                    billable_tokens = $3,
-                    settled_at = NOW(),
-                    updated_at = NOW()
-              WHERE id = $1`,
-            [usageRequest.id, textToSave, billableTokens],
-          );
-          return { id: usageRequest.id };
-        },
-        metadata: {
-          conversation_id: request.conversationId,
-        },
-      });
+      const settlement = await operationBilling.settle(context);
 
       // Persist conversation & messages with strict tenant ownership
       if (request?.conversationId) {
@@ -427,18 +414,13 @@ export function createChatStreamRoutes({
 
       return {
         status: 'settled',
-        creditsUsed,
+        creditsUsed: settlement.creditsUsed,
         billableTokens,
       };
     },
 
-    async release({ reservation, user, db: activeDb, failureClass }) {
-      await releaseFeatureCredits({
-        db: activeDb,
-        userId: user.id,
-        requestId: reservation?.reservationId || reservation?.request?.id,
-        failureClass: failureClass || 'unknown_failure',
-      });
+    async release(context) {
+      await operationBilling.release(context);
       return { status: 'released' };
     },
   };
