@@ -2,6 +2,30 @@
 
 Verified 2026-09-17; owner: repository maintainers.
 
+## Core 1.2.0 upgrade
+
+[core-v1.2.0](https://github.com/LukeJiaoR/yuva-agent-starter/releases/tag/core-v1.2.0)
+was published from `8290e3888a9a8c05f8a445eb953820b17cdc4669`, manifest
+`sha256-UN4Th+1lreVbLsKLH1yiX68zYvRMKlHV3S6OFxEf2eI=`. Both consumers use
+these exact published artifacts through separate pending-review upgrade PRs.
+[Ziwei PR #595](https://github.com/LukeJiaoR/ziwei/pull/595) remains pending;
+the merged product still uses 1.1.0 until its own PR is approved and merged.
+
+The independent Customer Support example previously existed only in a temporary
+directory deleted by smoke:consumer; it had no standalone remote repository.
+Its owner now retains it at [examples/customer-support](../../examples/customer-support/README.md)
+for review, independent npm installation and future upgrade PRs. Its historical
+1.1.0 template/product source is retained; package pins, lockfile and required
+003–006 schema migration files are the upgrade. Existing OperationStore consumers
+need those schema changes even if they do not adopt the new default composition.
+Ziwei uses legacy ledger/runtime ports and requires no starter-schema migration.
+
+The original example passed 29/29 before upgrade and after the required migration
+adjustment, with real PostgreSQL and the Web build. Current CI checks both the
+core and independent consumer on Node 22/24. No product was deployed.
+
+## Historical 1.1.0 migration
+
 The [core-v1.1.0 release](https://github.com/LukeJiaoR/yuva-agent-starter/releases/tag/core-v1.1.0)
 is consumed by [Ziwei PR #594](https://github.com/LukeJiaoR/ziwei/pull/594) and an
 independently generated Customer Support product. Both pins have source commit

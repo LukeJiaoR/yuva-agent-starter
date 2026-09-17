@@ -1,0 +1,78 @@
+{
+  "formatVersion": 1,
+  "repository": "LukeJiaoR/yuva-agent-starter",
+  "version": "1.2.0",
+  "tag": "core-v1.2.0",
+  "sourceCommit": "8290e3888a9a8c05f8a445eb953820b17cdc4669",
+  "development": false,
+  "compatibility": {
+    "node": [
+      22,
+      24
+    ],
+    "postgres": [
+      16
+    ],
+    "ledger": "existing-credit-ledger-v1",
+    "starterMigrations": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "automaticMigrations": false
+  },
+  "testedDependencies": {
+    "@ai-sdk/anthropic": "4.0.40",
+    "@ai-sdk/openai": "4.0.44",
+    "ai": "7.0.70",
+    "gpt-tokenizer": "3.4.0",
+    "@clerk/backend": "3.16.9"
+  },
+  "packages": [
+    {
+      "name": "@yuva/admin-core",
+      "version": "1.2.0",
+      "file": "yuva-admin-core-1.2.0.tgz",
+      "integrity": "sha512-sfeDfWVI/7GJqb3BhOLuQSAnFsQHzilbwl9VjrLxHEESXT6s9s+siMtxIUW26/Z2Tpdqf7zNomKYlyPMJUWDWA==",
+      "dependencies": {}
+    },
+    {
+      "name": "@yuva/ai-engine",
+      "version": "1.2.0",
+      "file": "yuva-ai-engine-1.2.0.tgz",
+      "integrity": "sha512-h/u3lGQ1EzbfZaMapsaPX4lv0P6naVrDdLIrJZcGrY6b6XtRj0GUFnWe0oWjHsMs04tEgF36Ipa7kUrTydHmDA==",
+      "dependencies": {
+        "@ai-sdk/anthropic": "^4.0.34",
+        "@ai-sdk/openai": "^4.0.36",
+        "ai": "^7.0.56",
+        "gpt-tokenizer": "^3.4.0"
+      }
+    },
+    {
+      "name": "@yuva/auth-core",
+      "version": "1.2.0",
+      "file": "yuva-auth-core-1.2.0.tgz",
+      "integrity": "sha512-x7fgHbhiLmr2rtrC9ItzFxIMtHT+282pVx+JwsxeZI/uKdZl8ALDo1qYutf14qKUzx9prjSodxHT43DjQOrcpg==",
+      "dependencies": {
+        "@clerk/backend": "^3.16.3"
+      }
+    },
+    {
+      "name": "@yuva/billing-core",
+      "version": "1.2.0",
+      "file": "yuva-billing-core-1.2.0.tgz",
+      "integrity": "sha512-kaGR3VelxGufCQCUellCPAzMgYYdkEVyRSw3zM5FAQcy+Uz1zVdZy3PV7Ug48XZN8qX83+T67ihycVw9h5GuDw==",
+      "dependencies": {}
+    },
+    {
+      "name": "@yuva/context-engine",
+      "version": "1.2.0",
+      "file": "yuva-context-engine-1.2.0.tgz",
+      "integrity": "sha512-R0c8byp3i5IOBJosL6P4F3cVM5+7mDwO8Y/Hm+FApZLa3VHamJAkBQR8NGi5nyFhTz/4XkG5DmlEXpYlosSXrA==",
+      "dependencies": {}
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "appName": "Customer Support",
+  "packageName": "support-agent",
+  "domainKey": "support-agent",
+  "generatedAt": "2026-09-17T14:38:23.283Z",
+  "source": {
+    "repository": "LukeJiaoR/yuva-agent-starter",
+    "commit": "d9d635fe15d6526d111789f71bb907387f760265",
+    "starterVersion": "1.0.0"
+  },
+  "core": {
+    "version": "1.1.0",
+    "tag": "core-v1.1.0",
+    "sourceCommit": "d105d8420e3df86c2caebf3ad60faec62fa2a8fe",
+    "packages": [
+      {
+        "name": "@yuva/admin-core",
+        "version": "1.1.0",
+        "integrity": "sha512-YQifP8dKnnOyNKIIbwGmu4mV5oBzmgW/NMmQR44D6a84eTGJGltHju7qw9LIGgY+CyHtjZXS90Olt5Fao7OfcA=="
+      },
+      {
+        "name": "@yuva/ai-engine",
+        "version": "1.1.0",
+        "integrity": "sha512-A70eMB/eHBBiYhUb9JXwJTs0QCFGwkTtwF4Ag3DfihYZRP1cJP3yq3ZxDVtwNjQftWQAmaViK4ZIwQpRCZmaFA=="
+      },
+      {
+        "name": "@yuva/auth-core",
+        "version": "1.1.0",
+        "integrity": "sha512-sCNNIhT1qNfBkmUxuxheHhe3DW1zyBZ0AUqnlOSzlGjWkHrzJP17ETrUSQzYaJwhc2UJoinR4PPSjayy41Dr6w=="
+      },
+      {
+        "name": "@yuva/billing-core",
+        "version": "1.1.0",
+        "integrity": "sha512-b16Ajv8I9MT8VLl7sQlJXrIuDek8dblpfgfPEEY21rugsbhnvdpLiqQdhgSalih7L9y81uY6rMebtt2rYkGaUA=="
+      },
+      {
+        "name": "@yuva/context-engine",
+        "version": "1.1.0",
+        "integrity": "sha512-Uve8ATa0huorJmwnSPTpJ32uJSLXAM07+loQHnn57FF5dpSkdy5dbgwNo9QBuD1jh3iHYGXhGU4fcwzQA14Evg=="
+      }
+    ]
+  },
+  "development": false
+}
