@@ -95,6 +95,20 @@ describe('Chat runtime with durable operations and usage (real PostgreSQL)', () 
     expect(response.events.join('')).toContain('event: done');
     expect(provider).toHaveBeenCalledTimes(1);
   });
+  it('runs the same route under explicit token configuration with scoped pricing and replay', async () => {
+    await grantCredits({ db, userId, credits: 100, creditType: 'purchased', idempotencyKey: randomUUID() });
+    const provider = vi.fn(async ({ onText }) => { await onText('Token product result');
+      return { usage: { source: 'provider', inputTokens: 2000, outputTokens: 1000, totalTokens: 3000 } }; });
+    const handler = route(provider, { config: { env: { PRICING_STRATEGY: 'token' } } });
+    const first = await send(handler, { requestId: 'token-product' });
+    expect(first.events.join('')).toContain('"strategy":"token"');
+    expect(first.events.join('')).toContain('"reserveCredits":27');
+    expect(first.events.join('')).toContain('"credits_used":4');
+    const replay = await send(handler, { requestId: 'token-product' });
+    expect(replay.events.join('')).toContain('"credits_used":4');
+    expect(provider).toHaveBeenCalledTimes(1);
+    expect((await db.query('SELECT settled_credits FROM credit_usage_requests WHERE user_id=$1', [userId])).rows[0].settled_credits).toBe(4);
+  });
   it('stores failures and partial facts with unknown external outcome for reconciliation', async () => {
     const provider = vi.fn(async ({ onText }) => {
       await onText('Partial unsafe output');

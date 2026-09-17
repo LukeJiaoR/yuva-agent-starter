@@ -19,6 +19,9 @@ export async function checkReadiness(signal) {
   const response = await fetch(apiUrl('/ready'), { signal });
   return readJsonResponse(response);
 }
+export async function readPricing(signal) {
+  return readJsonResponse(await fetch(apiUrl('/api/pricing'), { signal }));
+}
 
 export async function analyzeInput(input, signal) {
   const response = await fetch(apiUrl('/api/analyze'), {

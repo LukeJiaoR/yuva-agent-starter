@@ -15,13 +15,11 @@ import {
 import { allocateContextBudget } from '@yuva/context-engine';
 import {
   createOperationStore,
-  createFixedOperationPricingPolicy,
-  createOperationBillingPort,
   getCreditBalance,
   assertCapability,
 } from '@yuva/billing-core';
 import { DomainPrompts } from '../domain/prompts.js';
-import { PricingCatalog } from '../domain/pricing.config.js';
+import { createAiProduct, publicQuote } from '../domain/aiProduct.js';
 import { createUsageStore } from '../stores/usageStore.js';
 import { toPublicError } from '../http/errors.js';
 
@@ -33,41 +31,22 @@ export function createChatStreamRoutes({
   operationStore = createOperationStore({ db }),
   usageStore = createUsageStore({ db }),
   env = process.env,
+  product = createAiProduct({ env }),
 } = {}) {
   const router = express.Router();
-  const provider = env.AI_PROVIDER || 'openai';
-  const model = provider === 'mock' ? 'starter-local' : provider === 'anthropic'
-    ? (env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022') : (env.OPENAI_MODEL || 'gpt-4o');
+  const { provider, model, executionLimits, capabilities } = product;
   const identity = (input, accountId, clientRequestId) => ({
-    accountId, clientRequestId, featureKey: PricingCatalog.features.deep_reasoning.key,
+    accountId, clientRequestId, featureKey: product.featureKey,
     taskType: 'text', mode: 'stream', inputVersion: '1',
     input: { question: input.question, subject: input.subject || 'Default Subject', parameters: input.parameters || {},
       conversationId: input.conversationId || input.conversation_id || null, domainKey: adapter.domainKey },
   });
-  const executionLimits = { models: [model], paths: [{ provider, model }], maxCalls: 1, maxRetries: 0,
-    maxInputTokens: 24000, maxOutputTokens: 1024, deadlineMs: 60000 };
-  const capabilities = { taskType: 'text', outputLimit: ['openai', 'anthropic', 'mock'].includes(provider), abort: true };
-  const operationBilling = createOperationBillingPort({
-    db, operationStore,
-    readUsage: (identity) => usageStore.summary(identity),
-    metadata: ({ request }) => ({ conversation_id: request.conversationId }),
-    policy: createFixedOperationPricingPolicy({ credits: PricingCatalog.features.deep_reasoning.credits }),
-    executionLimits,
-    evaluateFulfillment: ({ operation, output }) => ({
-      status: 'ready', accountId: operation.accountId, ruleVersion: '1', resultId: operation.id,
-      artifacts: [{ id: operation.id, accountId: operation.accountId, type: 'text', state: 'available', text: output }],
-    }),
-    persistResult: async ({ client, ledgerRequest, output, providerResult }) => {
-      const billableTokens = providerResult?.usage?.source === 'provider' ? providerResult.usage.totalTokens ?? null : null;
-      await client.query(`UPDATE credit_usage_requests SET assistant_text=$2, billable_tokens=$3,
-        settled_at=NOW(), updated_at=NOW() WHERE id=$1`, [ledgerRequest.id, output, billableTokens]);
-      return { id: ledgerRequest.id };
-    },
-  });
+  const operationBilling = product.createBilling({ db, operationStore, usageStore });
   function existingOperation(operation) {
     const status = operation.financialStatus;
     if (['settled', 'no_charge'].includes(status) && operation.fulfillment?.status === 'ready') {
       return { isExisting: true, replayed: true, request: { status: 'settled', financialStatus: status,
+        pricing: publicQuote(operation.quote), creditsUsed: operation.decision?.credits ?? 0,
         client_request_id: operation.clientRequestId, assistant_text: operation.fulfillment.artifacts.find((a) => a.type === 'text')?.text || '' } };
     }
     if (status === 'released') return { rejected: true, status: 409, code: 'request_released', error: 'Request was released' };
@@ -320,8 +299,6 @@ export function createChatStreamRoutes({
     },
 
     async reserve({ request, user, db: activeDb }) {
-      const requiredCredits = PricingCatalog.features.deep_reasoning.credits;
-
       const result = await operationBilling.reserve({ request, user });
       if (result.kind === 'existing') {
         return existingOperation(result.operation);
@@ -337,7 +314,7 @@ export function createChatStreamRoutes({
           body: {
             error: 'insufficient_credits',
             code: 'insufficient_credits',
-            required_credits: requiredCredits,
+            required_credits: result.requiredCredits,
             available_credits: result.balance?.available ?? 0,
           },
           balance: result.balance,
@@ -457,10 +434,11 @@ export function createChatStreamRoutes({
       });
     },
 
-    emitStart(emitter, { request }) {
+    emitStart(emitter, { request, reservation }) {
       emitter?.emit?.('start', {
         conversation_id: request?.conversationId,
         pipeline_run_id: request?.pipelineRunId,
+        pricing: reservation?.operation?.quote ? publicQuote(reservation.operation.quote) : undefined,
       });
     },
 
@@ -468,10 +446,12 @@ export function createChatStreamRoutes({
       emitter?.emit?.('text_delta', { text: delta });
     },
 
-    emitDone(emitter) {
+    emitDone(emitter, { settlement } = {}) {
       emitter?.emit?.('done', {
         delivery_status: 'delivered',
         stop_reason: 'complete',
+        credits_used: settlement?.creditsUsed,
+        financial_status: settlement?.status,
       });
     },
 
@@ -529,7 +509,7 @@ export function createChatStreamRoutes({
         write: (event) => writeSseEvent(res, event),
       });
 
-      emitter.emit('start', { conversation_id: existing.conversation_id });
+      emitter.emit('start', { conversation_id: existing.conversation_id, pricing: existing.pricing });
       if (existing.assistant_text) {
         emitter.emit('text_delta', { text: existing.assistant_text });
       }
@@ -537,6 +517,8 @@ export function createChatStreamRoutes({
         delivery_status: 'delivered',
         stop_reason: 'complete',
         replayed: true,
+        credits_used: existing.creditsUsed ?? existing.settled_credits,
+        financial_status: existing.financialStatus ?? existing.status,
       });
       res.end();
 

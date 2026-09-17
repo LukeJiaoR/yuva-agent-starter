@@ -10,7 +10,7 @@ import {
   Sun,
   WarningCircle,
 } from '@phosphor-icons/react';
-import { analyzeInput, checkReadiness, streamChat } from './api.js';
+import { analyzeInput, checkReadiness, readPricing, streamChat } from './api.js';
 import './styles.css';
 
 const appName = import.meta.env.VITE_APP_NAME || 'Northstar Agent';
@@ -44,6 +44,11 @@ function App() {
   const [error, setError] = useState('');
   const [stage, setStage] = useState('idle');
   const activeRequest = useRef(null);
+  const requestSnapshot = useRef(null);
+  const [pricing, setPricing] = useState(null);
+  const [quote, setQuote] = useState(null);
+  const [charge, setCharge] = useState(null);
+  const [financialStatus, setFinancialStatus] = useState(null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -56,6 +61,7 @@ function App() {
     checkReadiness(controller.signal)
       .then(() => setReadiness({ state: 'ready', label: 'API ready' }))
       .catch(() => setReadiness({ state: 'error', label: 'API unavailable' }));
+    readPricing(controller.signal).then(setPricing).catch(() => setPricing(null));
     return () => controller.abort();
   }, []);
 
@@ -68,6 +74,7 @@ function App() {
   }, [parameters]);
 
   async function runAnalysis() {
+    if (requestSnapshot.current) return analysis;
     if (parsedParameters.error) {
       setError(parsedParameters.error);
       return;
@@ -91,7 +98,7 @@ function App() {
   }
 
   async function askAgent() {
-    const activeAnalysis = analysis || await runAnalysis();
+    const activeAnalysis = requestSnapshot.current ? analysis : analysis || await runAnalysis();
     if (!activeAnalysis) return;
     const controller = new AbortController();
     activeRequest.current?.abort();
@@ -99,27 +106,42 @@ function App() {
     setError('');
     setAnswer('');
     setStage('streaming');
+    if (!requestSnapshot.current) {
+      requestSnapshot.current = { question, subject, parameters: parsedParameters.value, requestId: crypto.randomUUID() };
+      setQuote(null); setCharge(null); setFinancialStatus(null);
+    }
+    let terminal = false;
     try {
-      await streamChat({
-        question,
-        subject,
-        parameters: parsedParameters.value,
-        requestId: crypto.randomUUID(),
-      }, {
+      const response = await streamChat(requestSnapshot.current, {
         signal: controller.signal,
         onEvent(event) {
           const payload = event.data?.data || event.data || {};
+          if (event.type === 'start' && payload.pricing) setQuote(payload.pricing);
+          if (event.type === 'pending') { setStage('pending'); setFinancialStatus(payload.status); }
           if (event.type === 'text_delta') setAnswer((current) => current + (payload.text || ''));
           if (event.type === 'error') {
             setError(payload.message || 'The agent could not answer.');
-            setStage('ready');
+            setFinancialStatus(payload.financial_status);
+            terminal = ['released','settled','no_charge'].includes(payload.financial_status);
+            setStage(terminal ? 'ready' : 'pending');
+            if (terminal) requestSnapshot.current = null;
           }
-          if (event.type === 'done') setStage('complete');
+          if (event.type === 'done') {
+            terminal = true; setStage('complete'); setCharge(payload.credits_used);
+            setFinancialStatus(payload.financial_status); requestSnapshot.current = null;
+          }
         },
       });
+      if (!terminal) {
+        setStage('pending');
+        if (response.status) setFinancialStatus(response.status);
+      }
     } catch (requestError) {
+      if (terminal) return;
       if (requestError.name !== 'AbortError') setError(requestError.message);
-      setStage('ready');
+      if ([400,401,402,403,422].includes(requestError.status)) {
+        requestSnapshot.current = null; setStage('ready');
+      } else setStage('pending');
     }
   }
 
@@ -189,7 +211,7 @@ function App() {
               </small>
             </label>
 
-            <button className="secondary-button" type="submit" disabled={busy || !subject.trim()}>
+            <button className="secondary-button" type="submit" disabled={busy || stage === 'pending' || !subject.trim()}>
               {stage === 'analyzing' ? 'Preparing facts' : 'Preview facts'}
               <ArrowRight size={18} aria-hidden="true" />
             </button>
@@ -225,16 +247,26 @@ function App() {
               <textarea value={question} onChange={(event) => setQuestion(event.target.value)} rows={3} maxLength={4000} />
             </label>
 
-            <button className="primary-button" type="button" onClick={askAgent} disabled={busy || !question.trim()}>
+            <p role="status">
+              {(quote || pricing)?.strategy === 'fixed' ? `${(quote || pricing).credits} credits per completed operation`
+                : (quote || pricing)?.strategy === 'token'
+                  ? `Input: ${(quote || pricing).inputRate.credits} / ${(quote || pricing).inputRate.tokens} tokens · Output: ${(quote || pricing).outputRate.credits} / ${(quote || pricing).outputRate.tokens} tokens`
+                  : 'Pricing unavailable'}
+              {(quote || pricing) && ` · Maximum ${(quote || pricing).authorizedCredits} credits`}
+              {(quote || pricing)?.strategy === 'token' && (quote || pricing).missingUsage === 'estimate'
+                && ' · Missing measurements use frozen budget estimates'}
+            </p>
+            <button className="primary-button" type="button" onClick={askAgent} disabled={busy || !question.trim() || !pricing}>
               <PaperPlaneTilt size={19} weight="fill" aria-hidden="true" />
-              {stage === 'streaming' ? 'Validating answer' : analysis ? 'Ask agent' : 'Prepare and continue'}
+              {stage === 'streaming' ? 'Validating answer' : stage === 'pending' ? 'Check result' : analysis ? 'Ask agent' : 'Prepare and continue'}
             </button>
 
             {busy && <div className="answer-skeleton" aria-label="Agent is working"><span /><span /><span /></div>}
             {error && <Status kind="error">{error}</Status>}
+            {stage === 'pending' && <Status kind="pending">{financialStatus === 'reconciliation_required' ? 'Awaiting billing review' : 'Result pending'} · Charges are not final.</Status>}
             {answer && (
               <article className="answer" aria-live="polite">
-                <Status kind="success">Validated and settled</Status>
+                <Status kind="success">{financialStatus === 'no_charge' ? 'Completed without charge' : stage === 'complete' ? 'Completed' : 'Result received'}{charge != null ? ` · ${charge} credits charged` : ''}</Status>
                 <p>{answer}</p>
               </article>
             )}

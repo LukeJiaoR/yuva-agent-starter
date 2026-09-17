@@ -2,8 +2,10 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
+import { pathToFileURL } from 'node:url';
 import { createDatabasePool } from './db/index.js';
 import { DomainKnowledgeAdapter } from './domain/adapter.js';
+import { createAiProduct } from './domain/aiProduct.js';
 import { createHealthRoutes } from './routes/health.routes.js';
 import { createAnalyzeRoutes } from './routes/analyze.routes.js';
 import { createChatStreamRoutes } from './routes/chatStream.routes.js';
@@ -19,9 +21,11 @@ export function createServer({
   validateOutput,
   operationStore,
   usageStore,
+  aiProduct,
   config = {},
 } = {}) {
   const env = config.env || process.env;
+  const product = aiProduct ?? createAiProduct({ env, configuration: config.pricing });
   const app = express();
 
   const configuredOrigins = String(env.CORS_ORIGIN || env.FRONTEND_URL || '')
@@ -68,6 +72,7 @@ export function createServer({
   // Mount API routes
   app.use(createHealthRoutes({ adapter: activeAdapter, db: activeDb }));
   app.use(createAnalyzeRoutes({ adapter: activeAdapter }));
+  app.get('/api/pricing', (req, res) => res.json(product.publicPricing));
   app.use(createChatStreamRoutes({
     db: activeDb,
     adapter: activeAdapter,
@@ -75,6 +80,7 @@ export function createServer({
     validateOutput,
     operationStore,
     usageStore,
+    product,
     env,
   }));
 
@@ -89,7 +95,8 @@ export function createServer({
   return app;
 }
 
-if (process.env.NODE_ENV !== 'test' && !process.env.TEST_MODE) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+  && process.env.NODE_ENV !== 'test' && !process.env.TEST_MODE) {
   const port = process.env.PORT || 3000;
   const app = createServer();
   app.listen(port, () => {

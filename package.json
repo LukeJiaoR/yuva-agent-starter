@@ -13,6 +13,8 @@
     "node": ">=22 <25"
   },
   "scripts": {
+    "example:fixed": "node scripts/run-product-example.mjs fixed",
+    "example:token": "node scripts/run-product-example.mjs token",
     "ops:recover": "node scripts/recover-operations.mjs",
     "create": "node scripts/create-web-app.mjs",
     "dev": "concurrently --kill-others --names api,web --prefix-colors blue,green \"npm run dev:api\" \"npm run dev:web\"",
