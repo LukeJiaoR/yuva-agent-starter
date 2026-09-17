@@ -82,8 +82,11 @@ existing settled request without another debit. Both functions coerce through th
 legacy integer helper, so the new adapter must validate amounts strictly first.
 The ledger preserves grant expiry and attempt-specific allocation history.
 
-Known defects to fix rather than preserve: route-local pricing and output-length
-usage fallback (#6/#8), no input conflict checks or frozen quote (#5), process-local
+New chat operations now use account-scoped input fingerprints, frozen quotes and
+durable per-call usage (#5/#6). Existing legacy results replay without invented quotes.
+Unknown usage remains null; output length is never substituted for provider usage.
+
+Remaining defects to fix: route-local pricing (#8), process-local
 settled flag and catch always reporting released (#11), best-effort conversation
 writes being insufficient for canonical replay (#11), no durable reconciliation
 (#13). Do not encode these defects as required compatibility behavior.

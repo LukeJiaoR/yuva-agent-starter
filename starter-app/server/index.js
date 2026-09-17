@@ -17,6 +17,8 @@ export function createServer({
   adapter,
   callAIStream,
   validateOutput,
+  operationStore,
+  usageStore,
   config = {},
 } = {}) {
   const env = config.env || process.env;
@@ -71,6 +73,8 @@ export function createServer({
     adapter: activeAdapter,
     callAIStream,
     validateOutput,
+    operationStore,
+    usageStore,
     env,
   }));
 

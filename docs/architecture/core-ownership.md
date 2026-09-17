@@ -62,7 +62,8 @@ Node versions and schema compatibility travel in a release manifest.
 
 The ledger API remains compatible with both existing product and starter ledger
 schemas. Starter operations (introduced by #5) require starter migration 2 only
-when used. Installing a core package never runs SQL, migrates a product database,
+when used; durable usage in the 1.2.0 development line requires migration 3
+for the starter application. Existing consumers remain pinned to 1.1.0. Installing a core package never runs SQL, migrates a product database,
 changes user prices, or deploys an application. Each product owns its migration
 sequence; rollback uses a compatible application version and a tested data restore
 plan when needed. A new package release never rewrites historical quotes.

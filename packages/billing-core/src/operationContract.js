@@ -81,7 +81,7 @@ export function validateUsageRecord(record) {
   invariant(Number.isSafeInteger(record.attempt) && record.attempt > 0);
   invariant(['started', 'succeeded', 'failed', 'cancelled', 'unknown'].includes(record.outcome));
   object(record.metrics);
-  const units = { inputTokens: 'token', outputTokens: 'token', cachedInputTokens: 'token', reasoningTokens: 'token', images: 'image', durationMs: 'millisecond' };
+  const units = { inputTokens: 'token', outputTokens: 'token', totalTokens: 'token', cachedInputTokens: 'token', cacheWriteTokens: 'token', reasoningTokens: 'token', toolTokens: 'token', images: 'image', durationMs: 'millisecond' };
   for (const [name, metric] of Object.entries(record.metrics)) {
     invariant(units[name] && metric && metric.unit === units[name], 'invalid_usage_unit');
     invariant(metric.value === null || (Number.isSafeInteger(metric.value) && metric.value >= 0), 'invalid_usage_value');

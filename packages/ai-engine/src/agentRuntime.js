@@ -76,6 +76,7 @@ export function createAgentRuntime(runtimeDefaults = {}) {
       validationPort = runtimeDefaults.validationPort || {},
       memoryPort = runtimeDefaults.memoryPort || {},
       telemetryPort = runtimeDefaults.telemetryPort || {},
+      usagePort = runtimeDefaults.usagePort || {},
     errorPort = runtimeDefaults.errorPort || {},
   } = options;
     let phase = "preflight";
@@ -337,7 +338,10 @@ export function createAgentRuntime(runtimeDefaults = {}) {
 
       if (typeof streamProvider === "function") {
         try {
-          providerResult = await streamProvider({
+          const invoke = typeof usagePort.invoke === "function"
+            ? (options) => usagePort.invoke({ invoke: streamProvider, options, request: canonicalRequest, reservation, user })
+            : streamProvider;
+          providerResult = await invoke({
             ...promptPayload,
             request: canonicalRequest,
             reservation,

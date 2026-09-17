@@ -1,7 +1,7 @@
 function nonNegativeInteger(value) {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
-  const integer = Math.floor(parsed);
+  const integer = parsed;
   return Number.isFinite(parsed)
     && parsed >= 0
     && Number.isSafeInteger(integer)
@@ -67,6 +67,10 @@ export function normalizedSdkUsage(usage) {
     reasoningTokens: nonNegativeInteger(usage?.outputTokenDetails?.reasoningTokens),
     toolTokens: nonNegativeInteger(raw.tool_tokens),
     providerCost: nonNegativeNumber(raw.cost),
+    ...(typeof raw.cost === "string" && /^\d+(?:\.\d{1,12})?$/u.test(raw.cost) && currencyCode(raw.currency) ? {
+      cost: { amount: raw.cost.replace(".", "").replace(/^0+(?=\d)/u, ""),
+        scale: (raw.cost.split(".")[1] || "").length, currency: currencyCode(raw.currency), source: "provider", status: "observed" },
+    } : {}),
     providerSurcharge: nonNegativeNumber(raw.surcharge),
     currency: currencyCode(raw.currency),
   };

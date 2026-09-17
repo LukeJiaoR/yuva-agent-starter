@@ -10,3 +10,4 @@ export * from './src/askStreamProvider.js';
 export * from './src/streamEmitter.js';
 export * from './src/tokenizer.js';
 export * from './src/agentRuntime.js';
+export * from './src/usageMeter.js';

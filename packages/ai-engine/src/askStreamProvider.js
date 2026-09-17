@@ -199,6 +199,8 @@ export async function generateProviderText({
   stream = streamText,
   modelFactory = createProviderModel,
 }) {
+  let observedResult = null;
+  const onObservation = (value) => { observedResult = { ...observedResult, ...value }; };
   try {
     const providerConfig = modelFactory({
       provider,
@@ -215,11 +217,14 @@ export async function generateProviderText({
       signal,
     });
     const sdkResult = providerConfig.provider === OPENAI_PROVIDER_NAME
-      ? await consumeSdkStream(stream(callOptions), { collectText: true })
+      ? await consumeSdkStream(stream(callOptions), { collectText: true, onObservation })
       : await generate(callOptions);
+    onObservation(sdkResult);
     return normalizedResult({ provider: providerConfig.provider, requestedModel: model, sdkResult });
   } catch (error) {
-    throw normalizeSdkError(error, signal);
+    const normalized = normalizeSdkError(error, signal);
+    if (observedResult) normalized.providerResult = normalizeSdkProviderResult(observedResult, { provider, model });
+    throw normalized;
   }
 }
 
@@ -236,7 +241,7 @@ const SUPPORTED_STREAM_PARTS = new Set([
   "finish",
 ]);
 
-async function consumeSdkStream(sdkStream, { onText, collectText = false } = {}) {
+async function consumeSdkStream(sdkStream, { onText, collectText = false, onObservation = () => {} } = {}) {
   let finish = null;
   let finalStep = null;
   let totalBytes = 0;
@@ -262,8 +267,10 @@ async function consumeSdkStream(sdkStream, { onText, collectText = false } = {})
       if (part.text && onText) await onText(part.text);
     } else if (part.type === "finish-step") {
       finalStep = part;
+      onObservation({ usage: part.usage, response: part.response, providerMetadata: part.providerMetadata, finishReason: part.finishReason });
     } else if (part.type === "finish") {
       finish = part;
+      onObservation({ ...(part.totalUsage ? { usage: part.totalUsage } : {}), finishReason: part.finishReason });
     } else if (part.type === "reasoning-delta") {
       sawReasoning ||= Boolean(part.text);
     }
@@ -284,7 +291,7 @@ async function consumeSdkStream(sdkStream, { onText, collectText = false } = {})
     content: text ? [{ type: "text", text }] : [],
     finishReason: finish.finishReason,
     rawFinishReason: finish.rawFinishReason,
-    usage: finish.totalUsage,
+    usage: finish.totalUsage ?? finalStep.usage,
     response: finalStep.response,
     providerMetadata: finalStep.providerMetadata,
   };
@@ -304,6 +311,8 @@ export async function streamProviderText({
   stream = streamText,
   modelFactory = createProviderModel,
 }) {
+  let observedResult = null;
+  const onObservation = (value) => { observedResult = { ...observedResult, ...value }; };
   try {
     const providerConfig = modelFactory({
       provider,
@@ -319,10 +328,13 @@ export async function streamProviderText({
       options,
       signal,
     }));
-    const sdkResult = await consumeSdkStream(sdkStream, { onText });
+    const sdkResult = await consumeSdkStream(sdkStream, { onText, onObservation });
+    onObservation(sdkResult);
     return normalizedResult({ provider: providerConfig.provider, requestedModel: model, sdkResult });
   } catch (error) {
-    throw normalizeSdkError(error, signal);
+    const normalized = normalizeSdkError(error, signal);
+    if (observedResult) normalized.providerResult = normalizeSdkProviderResult(observedResult, { provider, model });
+    throw normalized;
   }
 }
 

@@ -32,3 +32,5 @@ Core release and upgrade procedure: [Private versioned artifacts](releases.md).
 Consumer upgrade evidence and ownership: [Consumer migrations](maintenance/consumer-migration.md).
 
 Runtime configuration, service lifecycle and backup/restore: [Operations](maintenance/operations.md).
+
+Durable usage and provenance: [Usage](architecture/usage.md).
