@@ -117,4 +117,61 @@ describe('operation recovery runner', () => {
     expect((await runner().run({ review: true, dryRun: false, operationId: operation.id })).outcomes[0].action).toBe('released');
     expect((await db.query('SELECT action FROM ai_recovery_events WHERE operation_id=$1 ORDER BY id', [operation.id])).rows[0].action).toBe('manual_claimed');
   });
+  it('fences a runner whose lease is taken over while querying an existing external job', async () => {
+    await start(); await expire();
+    const inspect = vi.fn(async () => {
+      await expire();
+      const replacement = await recovery.claim({ operationId: operation.id, owner: 'replacement' });
+      expect(replacement.executionEpoch).toBe(2);
+      return { status: 'completed', fulfillment: result() };
+    });
+    const output = await runner(inspect).run({ dryRun: false, operationId: operation.id });
+    expect(output.outcomes[0]).toMatchObject({ action: 'deferred', reason: 'execution_lease_lost' });
+    const current = await settlement.read(identity());
+    expect(current.fulfillment).toBeNull();
+    expect(current.status).toBe('reserved');
+    expect((await getCreditBalance({ db, userId: accountId })).reserved).toBe(2);
+  });
+  it('releases only after a call observation explicitly confirms external failure', async () => {
+    const callId = await start(); await expire();
+    const inspect = async () => ({ status: 'failed', observations: [{ callId, observation: {
+      outcome: 'failed', externalStatus: 'completed', metrics: {}, failureCode: 'confirmed_failure' } }] });
+    const output = await runner(inspect).run({ dryRun: false, operationId: operation.id });
+    expect(output.outcomes[0]).toMatchObject({ action: 'released', reason: 'confirmed_execution_failed' });
+    expect(await getCreditBalance({ db, userId: accountId })).toMatchObject({ available: 10, reserved: 0 });
+  });
+  it('keeps late provider usage as evidence without reopening a settled user bill', async () => {
+    const callId = await start();
+    await usage.observe({ callId, accountId, observation: { outcome: 'succeeded', metrics: {} } });
+    await settlement.stage({ ...identity(), fulfillment: result() }); await expire();
+    expect((await runner().run({ dryRun: false, operationId: operation.id })).outcomes[0].action).toBe('settled');
+    const observation = { outcome: 'succeeded', metrics: { inputTokens: { value: 9000, unit: 'token', source: 'provider' } } };
+    await usage.observe({ callId, accountId, observation });
+    await usage.observe({ callId, accountId, observation });
+    expect((await usage.history({ callId, accountId }))).toHaveLength(2);
+    expect((await runner().run({ dryRun: false, operationId: operation.id })).outcomes).toEqual([]);
+    expect((await settlement.read(identity())).creditsUsed).toBe(2);
+    expect(await getCreditBalance({ db, userId: accountId })).toMatchObject({ available: 8, reserved: 0 });
+  });
+  it('rejects a resolver returning another policy version rather than repricing', async () => {
+    await settlement.stage({ ...identity(), fulfillment: result() }); await expire();
+    const recoveryRunner = createRecoveryRunner({ recoveryStore: recovery, settlementStore: settlement, usageStore: usage,
+      resolvePolicy: () => ({ id: 'fixed', version: '999', decide: () => { throw new Error('must not run'); } }) });
+    const output = await recoveryRunner.run({ dryRun: false, operationId: operation.id });
+    expect(output.outcomes[0]).toMatchObject({ action: 'deferred', reason: 'policy_version_unavailable' });
+    expect((await getCreditBalance({ db, userId: accountId })).reserved).toBe(2);
+  });
+  it('recovers verified completion after local cancellation while retaining the original observation', async () => {
+    const callId = await start();
+    await usage.observe({ callId, accountId, observation: { outcome: 'cancelled', externalStatus: 'unknown', metrics: {}, failureCode: 'provider_aborted' } });
+    await expire();
+    const output = await runner(async () => ({ status: 'completed', fulfillment: result(), observations: [{ callId,
+      observation: { outcome: 'succeeded', externalStatus: 'completed', metrics: {}, providerJobId: 'original-job' } }] }))
+      .run({ dryRun: false, operationId: operation.id });
+    expect(output.outcomes[0].action).toBe('settled');
+    expect((await usage.history({ callId, accountId })).map((row) => row.observation.outcome)).toEqual(['cancelled','succeeded']);
+    await expect(usage.observe({ callId, accountId, observation: { outcome: 'failed', externalStatus: 'completed', metrics: {} } }))
+      .rejects.toMatchObject({ code: 'call_outcome_conflict' });
+    expect((await usage.summary(identity())).calls).toHaveLength(1);
+  });
 });

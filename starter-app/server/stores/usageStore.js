@@ -87,7 +87,8 @@ export function createUsageStore({ db }) {
         invariant(current, 'call_not_found', 404);
         const { rowCount } = await client.query('INSERT INTO ai_usage_observations(call_id,digest,observation) VALUES($1,$2,$3) ON CONFLICT DO NOTHING', [callId, digest, safe]);
         if (!rowCount) return fromRow(current);
-        invariant(['started', 'unknown', safe.outcome].includes(current.outcome) || safe.outcome === 'unknown', 'call_outcome_conflict', 409);
+        invariant(['started', 'unknown', safe.outcome].includes(current.outcome) || safe.outcome === 'unknown'
+          || current.external_status === 'unknown' && safe.externalStatus === 'completed', 'call_outcome_conflict', 409);
         for (const [name, metric] of Object.entries(metrics)) {
           const old = current.metrics[name];
           if (old?.source === 'provider' && metric.source === 'provider' && old.value !== metric.value) invariant(false, 'provider_usage_conflict', 409);

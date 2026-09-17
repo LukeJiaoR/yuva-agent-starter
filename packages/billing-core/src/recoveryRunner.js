@@ -15,7 +15,9 @@ export function createRecoveryRunner({ recoveryStore, settlementStore, usageStor
     }
     if (operation.fulfillment?.status === 'ready') {
       const policy = resolvePolicy(operation.quote.policyId, operation.quote.policyVersion);
-      if (!policy) return { action: 'defer', reason: 'policy_version_unavailable' };
+      if (policy?.id !== operation.quote.policyId || policy?.version !== operation.quote.policyVersion) {
+        return { action: 'defer', reason: 'policy_version_unavailable' };
+      }
       return policy.decide(structuredClone(operation.quote), usage, operation.fulfillment);
     }
     if (!usage.calls.length) return { action: 'release', reason: 'no_external_call_started' };
