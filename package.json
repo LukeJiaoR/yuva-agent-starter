@@ -31,6 +31,7 @@
     "db:down": "docker compose down",
     "setup": "npm run db:setup",
     "test": "node scripts/verify-boundaries.mjs && vitest run",
+    "test:acceptance": "node scripts/verify-epic-acceptance.mjs",
     "test:packages": "node scripts/verify-boundaries.mjs && vitest run packages/",
     "verify:boundaries": "node scripts/verify-boundaries.mjs",
     "check": "npm test && npm run build",
