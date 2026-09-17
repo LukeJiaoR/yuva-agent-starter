@@ -3,10 +3,10 @@
   "owner": "Repository maintainers",
   "verifiedAt": "2026-09-17",
   "release": {
-    "version": "1.1.0",
-    "tag": "core-v1.1.0",
-    "sourceCommit": "d105d8420e3df86c2caebf3ad60faec62fa2a8fe",
-    "manifestIntegrity": "sha256-s9nsGbxa/3arQjU1tePYtqpMPhRoMyFIhmmd5gJ33ws="
+    "version": "1.2.0",
+    "tag": "core-v1.2.0",
+    "sourceCommit": "8290e3888a9a8c05f8a445eb953820b17cdc4669",
+    "manifestIntegrity": "sha256-UN4Th+1lreVbLsKLH1yiX68zYvRMKlHV3S6OFxEf2eI="
   },
   "consumers": [
     {
@@ -30,14 +30,20 @@
         "packageExportsPassed": 5,
         "ciDeployScopePassed": 31
       },
-      "deployment": "Development deployment succeeded for merged SHA 40693c0b799d921add7375d1e6c49d5a12a5baf9; no production rollout performed"
+      "deployment": "Development deployment succeeded for merged SHA 40693c0b799d921add7375d1e6c49d5a12a5baf9; no production rollout performed",
+      "currentMergedCoreVersion": "1.1.0",
+      "upgrade": {
+        "version": "1.2.0",
+        "status": "separate pending-review PR; no deployment",
+        "pullRequest": "https://github.com/LukeJiaoR/ziwei/pull/595"
+      }
     },
     {
       "id": "customer-support-example",
-      "kind": "isolated generated consumer",
-      "reproduce": "npm run smoke:consumer -- --bundle <downloaded-core-v1.1.0-directory>",
-      "corePin": ".core-release.json",
-      "schemaOwner": "generated scripts/schema.sql and scripts/migrations",
+      "kind": "independent generated consumer retained in maintenance repository",
+      "reproduce": "cd examples/customer-support && npm ci && CI=true TEST_DATABASE_URL=<local-test-postgres-url> npm run check",
+      "corePin": "examples/customer-support/.core-release.json",
+      "schemaOwner": "examples/customer-support/scripts/migrations",
       "enabledComponents": [
         "auth-core",
         "ai-engine",
@@ -51,9 +57,23 @@
         "passed": 29,
         "skipped": 0,
         "build": "passed",
-        "editableCoreSource": false
+        "editableCoreSource": false,
+        "baselineCoreVersion": "1.1.0",
+        "starterMigrations": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
       },
-      "deployment": "Local test only"
+      "deployment": "Local test only",
+      "repository": "LukeJiaoR/yuva-agent-starter",
+      "path": "examples/customer-support",
+      "coreVersion": "1.2.0",
+      "upgradeStatus": "pending review",
+      "pullRequest": "https://github.com/LukeJiaoR/yuva-agent-starter/pull/35"
     }
   ]
 }

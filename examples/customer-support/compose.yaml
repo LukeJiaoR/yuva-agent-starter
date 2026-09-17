@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: starter
+      POSTGRES_PASSWORD: starter
+      POSTGRES_DB: starter_agent
+    ports:
+      - "5432:5432"
+    volumes:
+      - starter_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U starter -d starter_agent"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: starter-app/Dockerfile
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://starter:starter@postgres:5432/starter_agent
+      ALLOW_DEV_GUEST: "true"
+      CORS_ORIGIN: http://localhost:8080
+      AUTH_TOKEN_SECRET: local_docker_auth_secret_change_before_deploy
+      AI_PROVIDER: mock
+    command: ["sh", "-c", "npm run db:setup && npm start"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/ready').then(r=>{if(!r.ok)process.exit(1)})"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  web:
+    build:
+      context: .
+      dockerfile: starter-web/Dockerfile
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  starter_postgres_data:

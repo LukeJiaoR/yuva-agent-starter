@@ -40,3 +40,5 @@ Frozen execution constraints: [Execution budget](architecture/execution-budget.m
 Exact user token rates: [Token pricing](architecture/token-pricing.md).
 
 Recovery commands and ownership: [Operation recovery](architecture/recovery.md).
+
+Independent consumer maintained for upgrade review: [Customer Support](../examples/customer-support/README.md).

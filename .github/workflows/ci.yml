@@ -59,6 +59,14 @@ jobs:
       - name: Build Starter Web
         run: npm run build
 
+      - name: Verify Independent Customer Support Consumer
+        env:
+          CI: 'true'
+          TEST_DATABASE_URL: postgresql://ziwei:changeme_in_production@localhost:5432/ziwei
+        run: |
+          npm --prefix examples/customer-support ci
+          npm --prefix examples/customer-support run check
+
       - name: Build Portable Containers
         if: matrix.node-version == 24
         run: |

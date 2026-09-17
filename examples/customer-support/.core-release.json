@@ -1,0 +1,11 @@
+{
+  "manifest": "vendor/yuva-core/1.2.0/manifest.json",
+  "manifestIntegrity": "sha256-UN4Th+1lreVbLsKLH1yiX68zYvRMKlHV3S6OFxEf2eI=",
+  "packageDirs": [
+    ".",
+    "starter-app"
+  ],
+  "repository": "LukeJiaoR/yuva-agent-starter",
+  "version": "1.2.0",
+  "sourceCommit": "8290e3888a9a8c05f8a445eb953820b17cdc4669"
+}
