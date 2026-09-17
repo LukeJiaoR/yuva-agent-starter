@@ -86,7 +86,21 @@ New chat operations now use account-scoped input fingerprints, frozen quotes and
 durable per-call usage (#5/#6). Existing legacy results replay without invented quotes.
 Unknown usage remains null; output length is never substituted for provider usage.
 
-Remaining defects to fix: route-local pricing (#8), process-local
+Fixed pricing now uses `createFixedOperationPricingPolicy` and
+`createOperationBillingPort` from the public billing-core entry point. The product
+injects its price, limits, fulfillment evaluator and transaction-local result
+writer. The adapter reloads the persisted operation, verifies reservation ownership,
+resolves the exact policy version and validates the decision against the frozen
+authorization before calling the existing ledger. Provider call count and tokens
+do not determine a fixed operation's fee. Historical `fixed/1` quotes remain valid.
+
+Pending/partial fulfillment and zero-charge execution currently throw explicit
+`settlement_deferred` / `no_charge_unsupported` errors and retain reservations;
+they are not successful responses. Missing policy or fulfillment versions also
+fail closed. Runtime terminal reporting and durable reconciliation for these
+states are part of the later settlement work, not a guarantee of this adapter.
+
+Remaining defects to fix: process-local
 settled flag and catch always reporting released (#11), best-effort conversation
 writes being insufficient for canonical replay (#11), no durable reconciliation
 (#13). Do not encode these defects as required compatibility behavior.

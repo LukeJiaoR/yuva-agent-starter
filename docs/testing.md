@@ -61,6 +61,12 @@ no runnable operation. An accepted operation retains its original quote on retry
 
 ## Durable usage
 
+`fixedPricing.test.js` verifies frozen prices across configuration changes,
+concurrent idempotent settlement, independent token/call counts, media artifacts,
+strict decision validation, version and tenant checks, and rollback on product
+result-write failure against PostgreSQL. Chat tests reject client price selection
+while preserving the default 2-credit response and replay behavior.
+
 `usageStore.test.js` verifies call-before-provider persistence, failed and partial
 usage, missing versus zero, repeated observations, source history, scoped reads
 and storage failures. The default route injects `createUsageStore` through the

@@ -78,6 +78,12 @@ describe('Chat runtime with durable operations and usage (real PostgreSQL)', () 
     expect((await facts('missing')).rows[0].metrics.inputTokens.value).toBeNull();
     expect((await db.query('SELECT billable_tokens FROM credit_usage_requests WHERE user_id=$1', [userId])).rows[0].billable_tokens).toBeNull();
   });
+  it('ignores client-supplied prices and policy selection', async () => {
+    const response = await send(route(async ({ onText }) => { await onText('Trusted price'); return {}; }),
+      { credits: 0, policyId: 'free', policyVersion: '99', quote: { terms: { credits: 0 } } });
+    expect(response.events.join('')).toContain('event: done');
+    expect((await db.query('SELECT settled_credits FROM credit_usage_requests WHERE user_id=$1', [userId])).rows[0].settled_credits).toBe(2);
+  });
   it('stores failures and partial provider facts before releasing, without done or unsafe output', async () => {
     const provider = vi.fn(async ({ onText }) => {
       await onText('Partial unsafe output');
