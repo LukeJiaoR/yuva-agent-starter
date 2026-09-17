@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import helmet from 'helmet';
 import { createDatabasePool } from './db/index.js';
 import { DomainKnowledgeAdapter } from './domain/adapter.js';
+import { createAiProduct } from './domain/aiProduct.js';
 import { createHealthRoutes } from './routes/health.routes.js';
 import { createAnalyzeRoutes } from './routes/analyze.routes.js';
 import { createChatStreamRoutes } from './routes/chatStream.routes.js';
@@ -19,9 +20,11 @@ export function createServer({
   validateOutput,
   operationStore,
   usageStore,
+  aiProduct,
   config = {},
 } = {}) {
   const env = config.env || process.env;
+  const product = aiProduct ?? createAiProduct({ env, configuration: config.pricing });
   const app = express();
 
   const configuredOrigins = String(env.CORS_ORIGIN || env.FRONTEND_URL || '')
@@ -68,6 +71,7 @@ export function createServer({
   // Mount API routes
   app.use(createHealthRoutes({ adapter: activeAdapter, db: activeDb }));
   app.use(createAnalyzeRoutes({ adapter: activeAdapter }));
+  app.get('/api/pricing', (req, res) => res.json(product.publicPricing));
   app.use(createChatStreamRoutes({
     db: activeDb,
     adapter: activeAdapter,
@@ -75,6 +79,7 @@ export function createServer({
     validateOutput,
     operationStore,
     usageStore,
+    product,
     env,
   }));
 
