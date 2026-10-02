@@ -12,10 +12,10 @@ import {
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { normalizeSdkProviderResult } from "./providerUsage.js";
+import { REASONING_EFFORTS } from "./modelConfig.js";
 
 const OPENAI_PROVIDER_NAME = "openai";
 const PROVIDER_TEXT_MAX_BYTES = 2 * 1024 * 1024;
-const REASONING_EFFORTS = new Set(["none", "low", "medium", "high"]);
 
 export class AskProviderStreamError extends Error {
   constructor(code, message, { status = null, retryable = false } = {}) {
