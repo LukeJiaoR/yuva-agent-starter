@@ -24,4 +24,19 @@ describe('new Responses reasoning efforts', () => {
     expect(stream.mock.calls[0][0]).toMatchObject({ maxRetries: 0, maxOutputTokens: 1000,
       providerOptions: { openai: { reasoningEffort: 'max', store: false } } });
   });
+
+  it.each(['gpt-6-luna', 'gpt-6.1-sol'])('serializes max on the actual SDK wire for %s', async model => {
+    let body;
+    const fetchFn = vi.fn(async (_url, init) => {
+      body = JSON.parse(init.body);
+      throw new Error('synthetic offline transport');
+    });
+    await expect(streamOpenAIResponses({ model, baseUrl: 'https://offline.invalid/v1',
+      apiKey: 'synthetic', systemPrompt: 'Synthetic', messages: [{ role: 'user', content: 'Hello' }],
+      options: { reasoningEffort: 'max', maxOutputTokens: 1000 }, fetchFn, onText: vi.fn() }))
+      .rejects.toMatchObject({ name: 'AskProviderStreamError' });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(body).toMatchObject({ model, reasoning: { effort: 'max' },
+      stream: true, store: false, max_output_tokens: 1000 });
+  });
 });
