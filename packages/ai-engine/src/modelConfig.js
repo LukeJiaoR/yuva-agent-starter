@@ -1,4 +1,4 @@
-export const REASONING_EFFORTS = new Set(["none", "low", "medium", "high"]);
+export const REASONING_EFFORTS = new Set(["none", "low", "medium", "high", "xhigh", "max"]);
 
 export function resolveOpenAIChatModel(env = process.env) {
   return String(env.OPENAI_CHAT_MODEL || "").trim();
