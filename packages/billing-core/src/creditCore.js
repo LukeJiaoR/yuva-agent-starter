@@ -35,6 +35,18 @@ function normalizeFeatureKey(value) {
   return key;
 }
 
+function normalizeGrantSourceTypes(value) {
+  if (value === null || value === undefined) return null;
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error("Credit grant source filter must be a non-empty array");
+  }
+  const sources = [...new Set(value.map((source) => text(source, 40)))];
+  if (sources.some((source) => !/^[a-z][a-z0-9_]{1,39}$/u.test(source))) {
+    throw new Error("Invalid Credit grant source filter");
+  }
+  return sources;
+}
+
 export function normalizeCreditBalance(row) {
   const membership = Math.max(0, integer(row?.membership_credits ?? row?.membership));
   const purchased = Math.max(0, integer(row?.purchased_credits ?? row?.purchased));
@@ -461,8 +473,10 @@ export async function reserveFeatureCredits({
   metadata = {},
   allowRetryOnReleased = true,
   resetResult = null,
+  allowedGrantSourceTypes = null,
 }) {
   const normalizedFeature = normalizeFeatureKey(featureKey);
+  const normalizedGrantSources = normalizeGrantSourceTypes(allowedGrantSourceTypes);
   const reserveCredits = integer(credits);
   if (reserveCredits <= 0) throw new Error("Credit reservation must be positive");
   if (!clientRequestId) throw new Error("Credit reservation requires a client request id");
@@ -488,47 +502,82 @@ export async function reserveFeatureCredits({
         if (integer(account.available_credits) < reserveCredits) {
           return { kind: "insufficient", balance: await readCreditBalance({ db: client, userId }) };
         }
-        const nextAttemptNo = integer(existing.attempt_no || 1) + 1;
-        const { rows: [reactivatedRequest] } = await client.query(
-          `UPDATE credit_usage_requests
-              SET status = 'generating',
-                  attempt_no = $2,
-                  reserved_credits = $3,
-                  settled_credits = 0,
-                  credits_released = 0,
-                  billable_tokens = 0,
-                  balance_before = $4,
-                  balance_after = NULL,
-                  result_id = NULL,
-                  failure_class = NULL,
-                  started_at = NOW(),
-                  completed_at = NULL,
-                  updated_at = NOW(),
-                  metadata = metadata || $5::jsonb
-            WHERE id = $1
-            RETURNING *`,
-          [
-            existing.id,
-            nextAttemptNo,
-            reserveCredits,
-            integer(account.available_credits),
-            JSON.stringify(metadata || {}),
-          ],
-        );
-        request = reactivatedRequest;
-        if (typeof resetResult === "function") await resetResult(client, request);
       } else {
         return { kind: "existing", request: existing, balance: await readCreditBalance({ db: client, userId }) };
       }
     }
 
-    if (!request) {
+    if (!existing) {
       if (integer(account.credit_debt) > 0) {
         return { kind: "debt", balance: await readCreditBalance({ db: client, userId }) };
       }
       if (integer(account.available_credits) < reserveCredits) {
         return { kind: "insufficient", balance: await readCreditBalance({ db: client, userId }) };
       }
+    }
+
+    const grantFilters = [
+      "user_id = $1",
+      "status = 'active'",
+      "remaining_credits > 0",
+      "(expires_at IS NULL OR expires_at > NOW())",
+    ];
+    const grantParams = [userId];
+    if (normalizedGrantSources) {
+      grantParams.push(normalizedGrantSources);
+      grantFilters.push(`source_type = ANY($${grantParams.length}::text[])`);
+    }
+    const { rows: grants } = await client.query(
+      `SELECT * FROM credit_grants
+        WHERE ${grantFilters.join("\n          AND ")}
+        ORDER BY ${creditGrantSpendOrderSql()}
+        FOR UPDATE`,
+      grantParams,
+    );
+    if (normalizedGrantSources) {
+      const eligibleCredits = grants.reduce((sum, grant) => sum + integer(grant.remaining_credits), 0);
+      if (eligibleCredits < reserveCredits) {
+        return {
+          kind: "insufficient",
+          reason: "eligible_grant_sources",
+          balance: await readCreditBalance({ db: client, userId }),
+        };
+      }
+    }
+
+    if (existing?.status === "released" && allowRetryOnReleased) {
+      const nextAttemptNo = integer(existing.attempt_no || 1) + 1;
+      const { rows: [reactivatedRequest] } = await client.query(
+        `UPDATE credit_usage_requests
+            SET status = 'generating',
+                attempt_no = $2,
+                reserved_credits = $3,
+                settled_credits = 0,
+                credits_released = 0,
+                billable_tokens = 0,
+                balance_before = $4,
+                balance_after = NULL,
+                result_id = NULL,
+                failure_class = NULL,
+                started_at = NOW(),
+                completed_at = NULL,
+                updated_at = NOW(),
+                metadata = metadata || $5::jsonb
+          WHERE id = $1
+          RETURNING *`,
+        [
+          existing.id,
+          nextAttemptNo,
+          reserveCredits,
+          integer(account.available_credits),
+          JSON.stringify(metadata || {}),
+        ],
+      );
+      request = reactivatedRequest;
+      if (typeof resetResult === "function") await resetResult(client, request);
+    }
+
+    if (!request) {
 
       const idempotencyKey = `${normalizedFeature}:${clientRequestId}`;
       const { rows: [insertedRequest] } = await client.query(
@@ -552,16 +601,6 @@ export async function reserveFeatureCredits({
       );
       request = insertedRequest;
     }
-    const { rows: grants } = await client.query(
-      `SELECT * FROM credit_grants
-        WHERE user_id = $1
-          AND status = 'active'
-          AND remaining_credits > 0
-          AND (expires_at IS NULL OR expires_at > NOW())
-        ORDER BY ${creditGrantSpendOrderSql()}
-        FOR UPDATE`,
-      [userId],
-    );
     let remaining = reserveCredits;
     const allocations = [];
     for (const grant of grants) {

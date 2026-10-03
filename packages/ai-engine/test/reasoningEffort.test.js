@@ -25,7 +25,7 @@ describe('new Responses reasoning efforts', () => {
       providerOptions: { openai: { reasoningEffort: 'max', store: false } } });
   });
 
-  it.each(['gpt-6-luna', 'gpt-6.1-sol'])('serializes max on the actual SDK wire for %s', async model => {
+  it.each(['gpt-6-luna', 'gpt-6.1-sol'].flatMap(model => ['xhigh', 'max'].map(effort => ({ model, effort }))))('serializes $effort on the actual SDK wire for $model', async ({ model, effort }) => {
     let body;
     const fetchFn = vi.fn(async (_url, init) => {
       body = JSON.parse(init.body);
@@ -33,10 +33,10 @@ describe('new Responses reasoning efforts', () => {
     });
     await expect(streamOpenAIResponses({ model, baseUrl: 'https://offline.invalid/v1',
       apiKey: 'synthetic', systemPrompt: 'Synthetic', messages: [{ role: 'user', content: 'Hello' }],
-      options: { reasoningEffort: 'max', maxOutputTokens: 1000 }, fetchFn, onText: vi.fn() }))
+      options: { reasoningEffort: effort, maxOutputTokens: 1000 }, fetchFn, onText: vi.fn() }))
       .rejects.toMatchObject({ name: 'AskProviderStreamError' });
     expect(fetchFn).toHaveBeenCalledTimes(1);
-    expect(body).toMatchObject({ model, reasoning: { effort: 'max' },
+    expect(body).toMatchObject({ model, reasoning: { effort },
       stream: true, store: false, max_output_tokens: 1000 });
   });
 });

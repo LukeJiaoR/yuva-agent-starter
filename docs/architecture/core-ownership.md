@@ -47,6 +47,19 @@ required implementations fail explicitly. Do not add a registry/plugin platform
 for interfaces already expressed as constructor arguments. Default stacks remain
 Node 24 (22 compatible), PostgreSQL 16, Express and React/Vite.
 
+`assembleConversationContext` preserves all supplied chart/context units and
+messages in order; its token counter is diagnostic and the provider owns the
+actual context limit. `loadConversationMessages` reads all oldest-first pages
+from one product-authorized conversation and propagates storage failures instead
+of returning partial history. The existing budget-allocation APIs remain available.
+
+`reserveFeatureCredits` accepts an optional server-owned `allowedGrantSourceTypes`
+array. It locks and checks eligible active grants before creating a request or
+reactivating a released attempt, including before the product's `resetResult`
+callback. Insufficient eligible grants return `eligible_grant_sources`; existing
+active/settled requests still replay. Omitting the filter preserves unrestricted
+reservation behavior. Products own which grant sources qualify for their prices.
+
 Public exports are package root only (plus package.json for version discovery).
 Consumers declare each package they import. The core may import its own files and
 declared dependencies, never a product workspace or product singleton. Tests and
