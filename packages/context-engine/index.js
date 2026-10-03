@@ -5,3 +5,4 @@
  */
 
 export * from './src/contextBudget.js';
+export * from './src/conversationContext.js';
