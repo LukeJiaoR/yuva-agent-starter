@@ -15,6 +15,20 @@ pins package bytes; `.core-release.json` pins the manifest SHA-256 and source SH
 Digests detect changes relative to a trusted pin, not independent authorship:
 review the authenticated source/tag and changed manifest in every upgrade PR.
 
+## Pending compatible billing fix
+
+The administrative account update explicitly types its negative Credit delta as
+PostgreSQL `integer`, matching `credit_accounts.available_credits`. This prevents
+SQLSTATE `42725` (ambiguous unary minus) during manual membership expiration,
+administrative deductions, and reversals. The balance guard, account lock,
+transaction boundary and ledger behavior are unchanged; no migration is needed.
+
+`starter-app/tests/creditAdjustments.test.js` exercises these public operations on
+an isolated PostgreSQL schema, including exact-zero balances, positive reversal,
+insufficient-balance rollback, repeated expiration and concurrent expirations.
+This source change still requires a new immutable release and a consumer upgrade;
+it does not modify any previously published archive or deployed consumer.
+
 ## Release
 
 Merge and pass Node 22/24 CI first. On the selected clean main commit:
