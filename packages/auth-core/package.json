@@ -1,6 +1,6 @@
 {
   "name": "@yuva/auth-core",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "type": "module",
   "description": "Clerk authentication, user bootstrap, and security hardening for vertical AI SaaS",
   "main": "index.js",
