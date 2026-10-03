@@ -1274,7 +1274,7 @@ function requireId(value, code) {
 
 async function updateCreditAccount(client, userId, availableDelta, reservedDelta = 0, debtDelta = 0) {
   const predicates = ["user_id = $1"];
-  if (availableDelta < 0) predicates.push("available_credits >= -$2");
+  if (availableDelta < 0) predicates.push("available_credits >= -($2::integer)");
   const { rows: [account] } = await client.query(
     `UPDATE credit_accounts
         SET available_credits = available_credits + $2,
