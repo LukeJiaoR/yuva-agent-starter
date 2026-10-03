@@ -15,7 +15,12 @@ pins package bytes; `.core-release.json` pins the manifest SHA-256 and source SH
 Digests detect changes relative to a trusted pin, not independent authorship:
 review the authenticated source/tag and changed manifest in every upgrade PR.
 
-## Pending compatible billing fix
+## Core 1.3.0 compatibility updates
+
+[Core 1.3.0](releases/1.3.0.md) adds complete-conversation context exports and
+optional Credit grant source filtering, and accepts `max`/`xhigh` reasoning
+efforts through the Responses adapter. Existing public budget APIs and
+unrestricted reservation behavior remain available.
 
 The administrative account update explicitly types its negative Credit delta as
 PostgreSQL `integer`, matching `credit_accounts.available_credits`. This prevents
@@ -26,8 +31,9 @@ transaction boundary and ledger behavior are unchanged; no migration is needed.
 `starter-app/tests/creditAdjustments.test.js` exercises these public operations on
 an isolated PostgreSQL schema, including exact-zero balances, positive reversal,
 insufficient-balance rollback, repeated expiration and concurrent expirations.
-This source change still requires a new immutable release and a consumer upgrade;
-it does not modify any previously published archive or deployed consumer.
+Consumers receive these fixes through the new immutable 1.3.0 artifacts and a
+separate consumer upgrade; previously published archives and deployed consumers
+are not modified by this release.
 
 ## Release
 
