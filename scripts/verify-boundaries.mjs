@@ -93,7 +93,11 @@ function checkConsumer(dir, dependencies) {
     }
   }
 }
-checkConsumer(path.join(ROOT_DIR, 'starter-app/server'), JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'starter-app/package.json'))).dependencies);
+const consumerManifest = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'starter-app/package.json')));
+checkConsumer(path.join(ROOT_DIR, 'starter-app/server'), consumerManifest.dependencies);
+checkConsumer(path.join(ROOT_DIR, 'starter-app/tests'), {
+  ...consumerManifest.dependencies, ...consumerManifest.devDependencies,
+});
 
 if (violations.length > 0) {
   console.error('\n❌ Package boundary violations found:');

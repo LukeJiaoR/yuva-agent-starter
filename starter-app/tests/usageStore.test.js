@@ -1,9 +1,9 @@
 import { beforeAll, beforeEach, afterAll, describe, it, expect, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { isolatedDatabase, operationFixture, quoteFixture } from './helpers/database.js';
-import { createOperationStore, grantCredits } from '../../packages/billing-core/index.js';
+import { createOperationStore, grantCredits } from '@yuva/billing-core';
 import { createUsageStore } from '../server/stores/usageStore.js';
-import { createMeteredProvider, usageMetrics, validateMetrics, validateCost, streamProviderText, generateProviderText, normalizeSdkProviderResult, summarizeUsage } from '../../packages/ai-engine/index.js';
+import { createMeteredProvider, usageMetrics, validateMetrics, validateCost, streamProviderText, generateProviderText, normalizeSdkProviderResult, summarizeUsage } from '@yuva/ai-engine';
 
 describe('durable usage observations', () => {
   let db, close, accountId, operation, store;
