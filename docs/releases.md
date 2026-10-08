@@ -15,6 +15,12 @@ pins package bytes; `.core-release.json` pins the manifest SHA-256 and source SH
 Digests detect changes relative to a trusted pin, not independent authorship:
 review the authenticated source/tag and changed manifest in every upgrade PR.
 
+## Core 1.4.0 explicit free execution
+
+[Core 1.4.0](releases/1.4.0.md) adds an explicit, opt-in free usage lifecycle.
+Consumer-owned schema support and generation limits are required before use;
+ordinary positive Credit APIs retain their guards.
+
 ## Core 1.3.0 compatibility updates
 
 [Core 1.3.0](releases/1.3.0.md) adds complete-conversation context exports and

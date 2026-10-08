@@ -15,13 +15,13 @@
     "express": "^4.21.0",
     "helmet": "^8.1.0",
     "pg": "^8.13.0",
-    "@yuva/ai-engine": "1.3.0",
-    "@yuva/auth-core": "1.3.0",
-    "@yuva/billing-core": "1.3.0",
-    "@yuva/context-engine": "1.3.0"
+    "@yuva/ai-engine": "1.4.0",
+    "@yuva/auth-core": "1.4.0",
+    "@yuva/billing-core": "1.4.0",
+    "@yuva/context-engine": "1.4.0"
   },
   "devDependencies": {
     "vitest": "^4.1.8",
-    "@yuva/admin-core": "1.3.0"
+    "@yuva/admin-core": "1.4.0"
   }
 }

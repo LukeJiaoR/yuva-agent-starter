@@ -495,6 +495,7 @@ export async function reserveFeatureCredits({
     let request = null;
 
     if (existing) {
+      if (existing.pricing_strategy === "free") throw coreError("free_usage_requires_explicit_lifecycle");
       if (existing.status === "released" && allowRetryOnReleased) {
         if (integer(account.credit_debt) > 0) {
           return { kind: "debt", balance: await readCreditBalance({ db: client, userId }) };
@@ -681,6 +682,7 @@ export async function settleFeatureCredits({
     const accountBefore = await lockCreditAccount(client, userId);
     const request = await loadUsageRequest(client, { id: requestId, userId, lock: true });
     if (!request) throw new Error("Credit usage request not found");
+    if (request.pricing_strategy === "free") throw coreError("free_usage_requires_explicit_lifecycle");
     if (request.status === "settled") {
       return { replay: true, request, balance: await readCreditBalance({ db: client, userId }) };
     }
@@ -838,6 +840,7 @@ export async function releaseFeatureCredits({
     const accountBefore = await lockCreditAccount(client, userId);
     const request = await loadUsageRequest(client, { id: requestId, userId, lock: true });
     if (!request) throw new Error("Credit usage request not found");
+    if (request.pricing_strategy === "free") throw coreError("free_usage_requires_explicit_lifecycle");
     if (request.status === "released" || request.status === "settled") {
       return { replay: true, request, balance: await readCreditBalance({ db: client, userId }) };
     }
