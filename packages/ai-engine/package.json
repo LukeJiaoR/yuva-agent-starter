@@ -1,6 +1,6 @@
 {
   "name": "@yuva/ai-engine",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "type": "module",
   "description": "Multi-provider AI orchestration, SSE streaming, token metering, and prompt evaluation framework",
   "main": "index.js",

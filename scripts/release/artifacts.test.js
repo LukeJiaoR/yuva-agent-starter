@@ -19,7 +19,7 @@ describe('private release integrity and safe consumer upgrades', () => {
     expect(manifest.packages).toHaveLength(5);
     expect(manifest.compatibility.starterMigrations).toEqual([1, 2, 3, 4, 5, 6]);
     expect(manifest.compatibility.automaticMigrations).toBe(false);
-    expect((await verifyBundle(bundle, { allowDevelopment: true })).version).toBe('1.3.0');
+    expect((await verifyBundle(bundle, { allowDevelopment: true })).version).toBe('1.4.0');
     expect(manifest.packages.every((p) => p.integrity.startsWith('sha512-'))).toBe(true);
   });
   it('defaults to a read-only plan and never edits product source', async () => {
@@ -28,7 +28,7 @@ describe('private release integrity and safe consumer upgrades', () => {
     expect(plan.apply).toBe(false); expect(plan.changes).toHaveLength(1);
     expect(await fs.readFile(path.join(consumer, 'package.json'), 'utf8')).toBe(original);
     await installBundle({ root: consumer, bundle, packageDirs: ['.'], apply: true, allowDevelopment: true });
-    expect((await json(path.join(consumer, 'package.json'))).dependencies['@yuva/billing-core']).toContain('vendor/yuva-core/1.3.0/');
+    expect((await json(path.join(consumer, 'package.json'))).dependencies['@yuva/billing-core']).toContain('vendor/yuva-core/1.4.0/');
     expect(await fs.readFile(path.join(consumer, 'product.js'), 'utf8')).toBe('product-owned logic');
   });
   it('installs all packages outside the workspace and enforces public exports', async () => {

@@ -6,6 +6,7 @@
  */
 
 export * from './src/creditCore.js';
+export * from './src/freeFeatureUsage.js';
 export * from './src/subscriptionEntitlements.js';
 export * from './src/creditFeatures.js';
 export * from './src/operationContract.js';
