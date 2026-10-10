@@ -4,6 +4,9 @@ export const DEFAULT_ANON_COOKIE_NAME = 'app_anon';
 const DEFAULT_COOKIE_MAX_AGE_MS = 180 * 24 * 60 * 60 * 1000;
 
 export function getClaimSecret(env = process.env) {
+  if (env.NODE_ENV === 'production' && !env.CLAIM_TOKEN_SECRET && !env.UNSUBSCRIBE_SECRET) {
+    throw new Error('CLAIM_TOKEN_SECRET or UNSUBSCRIBE_SECRET is required in production');
+  }
   return (
     env.CLAIM_TOKEN_SECRET ||
     env.UNSUBSCRIBE_SECRET ||
