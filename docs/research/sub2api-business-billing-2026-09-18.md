@@ -2,7 +2,7 @@
 
 日期：2026-09-18。结论：方向可行，复用 sub2api 的供应商接入、账号/Key 管理、消耗统计和运营后台；主站保留报价、用户账本、交付和可靠结算。匹配层负责身份、业务、调用与用量关联，不直接以 sub2api 余额替代主站积分。
 
-本次是源码静态核查与实施前调研清单，没有部署、调用接口或进行付费测试。复用先前检出的官方 Wei-Shaw/sub2api commit `efe9aab1e4ec89a42ba45e8dac20e882c5409a6a`，不是声称已检查 9月18日最新main或实际部署版本。实施前须对目标版本复核。前次媒体研究保存在 `/Users/luke/Documents/Codex/2026-09-17/yuva-core-v1-2-release/outputs/media-billing-research-2026-09-17.md`。
+本次是源码静态核查与实施前调研清单，没有部署、调用接口或进行付费测试。复用先前检出的官方 Wei-Shaw/sub2api commit `efe9aab1e4ec89a42ba45e8dac20e882c5409a6a`，不是声称已检查 9月18日最新main或实际部署版本。实施前须对目标版本复核。
 
 ## 1. 已确定的职责
 

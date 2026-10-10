@@ -1,6 +1,6 @@
 # Creating a project
 
-The generator turns this repository into an independent product with versioned core artifacts. It copies product workspaces and setup scripts, and vendors verified core tarballs instead of editable `packages/*` source. Run it from a clone of `yuva-agent-starter`:
+The generator turns this repository into an independent product with versioned core artifacts. It copies product workspaces and setup scripts, and vendors verified core tarballs instead of editable `packages/*` source. Run it from a clean, committed clone of `yuva-agent-starter`. The default target is a sibling directory:
 
 ```bash
 npm run create -- customer-support-agent \
@@ -21,7 +21,7 @@ npm run create -- customer-support-agent \
 | `--description <text>` | Web app description |
 | `--install` | Run `npm ci` after copying |
 
-The destination must be absent or empty. The generator refuses to write inside the starter source tree and never copies `.git`, dependency directories, local secrets, builds, or coverage output.
+Use a dedicated database for the generated product, and avoid running its Compose database on a host port already used by the starter. The destination must be absent or empty. The generator refuses to write inside the starter source tree and never copies `.git`, dependency directories, local secrets, builds, or coverage output.
 
 ## Generated configuration
 
@@ -34,9 +34,9 @@ The destination must be absent or empty. The generator refuses to write inside t
 ## First-run checklist
 
 ```bash
-cd customer-support-agent
+cd ../customer-support-agent
 npm ci                    # omit if --install was used
-docker compose up -d postgres
+docker compose up -d --wait postgres
 npm run db:setup
 npm run dev
 ```

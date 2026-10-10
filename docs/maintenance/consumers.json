@@ -10,35 +10,6 @@
   },
   "consumers": [
     {
-      "id": "ziwei",
-      "repository": "LukeJiaoR/ziwei",
-      "pullRequest": "https://github.com/LukeJiaoR/ziwei/pull/594",
-      "corePin": ".core-release.json",
-      "schemaOwner": "ziwei-app/sql",
-      "enabledComponents": [
-        "auth-core",
-        "ai-engine",
-        "billing-core",
-        "context-engine",
-        "admin-core"
-      ],
-      "upgradeOwner": "Ziwei repository maintainers",
-      "validation": {
-        "node": "24.14.0",
-        "backendPassed": 2786,
-        "backendSkipped": 2,
-        "packageExportsPassed": 5,
-        "ciDeployScopePassed": 31
-      },
-      "deployment": "Development deployment succeeded for merged SHA 40693c0b799d921add7375d1e6c49d5a12a5baf9; no production rollout performed",
-      "currentMergedCoreVersion": "1.1.0",
-      "upgrade": {
-        "version": "1.2.0",
-        "status": "separate pending-review PR; no deployment",
-        "pullRequest": "https://github.com/LukeJiaoR/ziwei/pull/595"
-      }
-    },
-    {
       "id": "customer-support-example",
       "kind": "independent generated consumer retained in maintenance repository",
       "reproduce": "cd examples/customer-support && npm ci && CI=true TEST_DATABASE_URL=<local-test-postgres-url> npm run check",

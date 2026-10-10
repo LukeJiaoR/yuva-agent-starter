@@ -4,12 +4,16 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
-/** One short, schema-scoped transaction serializes setup and verifies applied files. */
+// Extensions are database-wide even when application tables use separate schemas.
+export const lockDatabaseMigrations = (client) => client.query(
+  "SELECT pg_advisory_xact_lock(hashtextextended(current_database() || ':starter-migrations', 0))");
+
+/** One short, database-scoped transaction serializes setup and verifies applied files. */
 export async function migrateDatabase(pool, { directory = path.join(root, 'migrations') } = {}) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query("SELECT pg_advisory_xact_lock(hashtextextended(current_database() || ':' || current_schema() || ':starter-migrations', 0))");
+    await lockDatabaseMigrations(client);
     await client.query(`CREATE TABLE IF NOT EXISTS starter_migrations (
       version INTEGER PRIMARY KEY, name TEXT NOT NULL, checksum CHAR(64) NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`);

@@ -1,44 +1,40 @@
 # Documentation
 
-Use these guides in order when creating a product:
+## Start here
 
-1. [Quickstart](quickstart.md): run the included app locally.
-2. [Creating a project](creating-a-project.md): generate an independent repository.
-3. [Customization](customization.md): replace the example domain safely.
-4. [API reference](api.md): call the HTTP and SSE contracts.
-5. [Testing](testing.md): run unit, database, HTTP, and build checks.
-6. [Deployment](deployment.md): prepare a production environment.
+1. [Quickstart](quickstart.md): clone, install, configure PostgreSQL, run the mock app, and troubleshoot.
+2. [Creating a project](creating-a-project.md): generate an independent product with pinned core packages.
+3. [Customization](customization.md): replace domain facts, prompts, validation, pricing, auth, and UI.
+4. [API reference](api.md): use the HTTP and SSE contracts.
+5. [Testing](testing.md): run unit, database, acceptance, and browser checks.
+6. [Deployment](deployment.md): prepare production configuration and rollout.
 
-The system shape and package boundaries are documented in [Architecture](../ARCHITECTURE.md).
+## Architecture
 
-## Supported baseline
+- [System overview and workspaces](../ARCHITECTURE.md)
+- [Core ownership and extension points](architecture/core-ownership.md)
+- [Operations, pricing, and settlement](architecture/pricing-and-settlement.md)
+- [Durable usage and provenance](architecture/usage.md)
+- [Execution budgets](architecture/execution-budget.md)
+- [Token pricing](architecture/token-pricing.md)
+- [Operation recovery](architecture/recovery.md)
 
-- Recommended runtime: Node.js 24
-- Compatibility runtime: Node.js 22
-- Package manager: npm 10
-- Database: PostgreSQL 16+
-- Browser UI: current Chrome, Edge, Firefox, and Safari releases
+## Releases and operations
 
-## Source of truth
+- [Versioned core bundles and upgrades](releases.md)
+- [Independent Customer Support example](../examples/customer-support/README.md)
+- [Public consumer migration evidence](maintenance/consumer-migration.md)
+- [Runtime configuration, service lifecycle, and backup/restore](maintenance/operations.md)
 
-Executable code, `.env.example`, `scripts/schema.sql`, `scripts/migrations/`, release manifests, and CI are authoritative. If a guide differs from the implementation, treat that as a documentation bug and update both in the same change.
+## Project information
 
-Pricing and lifecycle contracts: [Operations, pricing and settlement](architecture/pricing-and-settlement.md).
+- [Contributing](../CONTRIBUTING.md)
+- [Security reporting](../SECURITY.md)
+- [MIT license](../LICENSE)
+- [GitHub Issues](https://github.com/LukeJiaoR/yuva-agent-starter/issues)
 
-Core ownership and extension seams: [Core ownership](architecture/core-ownership.md).
+## Runtime baseline and source of truth
 
-Core release and upgrade procedure: [Private versioned artifacts](releases.md).
+Node.js 24 is recommended, Node.js 22.12+ is the compatibility target, npm 10 is the declared package manager, and the database baseline is PostgreSQL 16+. The web app targets modern browsers; validate the browsers your product supports before release.
 
-Consumer upgrade evidence and ownership: [Consumer migrations](maintenance/consumer-migration.md).
-
-Runtime configuration, service lifecycle and backup/restore: [Operations](maintenance/operations.md).
-
-Durable usage and provenance: [Usage](architecture/usage.md).
-
-Frozen execution constraints: [Execution budget](architecture/execution-budget.md).
-
-Exact user token rates: [Token pricing](architecture/token-pricing.md).
-
-Recovery commands and ownership: [Operation recovery](architecture/recovery.md).
-
-Independent consumer maintained for upgrade review: [Customer Support](../examples/customer-support/README.md).
+Executable code, `.env.example`, `scripts/schema.sql`, `scripts/migrations/`, release manifests, and CI configuration define the current behavior. Historical release or test records are evidence for their recorded version, not a guarantee that the current checkout or a deployment has passed. Report documentation mismatches with a reproducible example.

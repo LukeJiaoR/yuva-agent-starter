@@ -3,6 +3,7 @@ import pg from 'pg';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { prepareTestDatabase } from './helpers/database.js';
 import {
   grantCredits,
   reserveFeatureCredits,
@@ -28,6 +29,7 @@ describe('Real PostgreSQL Billing & Auth Schema Integration Contract Test', () =
       pool = new Pool({ connectionString, connectionTimeoutMillis: 5000 });
       await pool.query('SELECT 1');
       isPostgresAvailable = true;
+      await prepareTestDatabase(pool);
 
       // 1. Create isolated test schema
       await pool.query(`CREATE SCHEMA IF NOT EXISTS ${TEST_SCHEMA}`);
