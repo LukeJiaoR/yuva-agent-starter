@@ -76,8 +76,8 @@ numeric/default behavior; bounded execution ports reject this opt-in.
 
 ## Distribution and schema
 
-This repository is private. Versioned npm tarballs are distributed through a
-private GitHub Release, then verified and pinned in the consumer's vendor folder.
+This repository is public. Versioned npm tarballs are distributed through
+GitHub Releases, then verified and pinned in the consumer's vendor folder.
 Only artifacts are vendored, not editable core source; npm ci requires no GitHub
 token in package URLs. The lockfile records package integrity. Source SHA, hashes,
 Node versions and schema compatibility travel in a release manifest.
@@ -86,7 +86,8 @@ The ledger API remains compatible with both existing product and starter ledger
 schemas. Starter operations (introduced by #5) used migration 2 in core 1.1.0.
 Core 1.2.0 OperationStore consumers must upgrade their starter schema; the
 complete 1.2.0 starter composition requires migrations 1–6
-for operation, usage, budget, settlement and recovery persistence. Existing consumers remain pinned to 1.1.0. Installing a core package never runs SQL, migrates a product database,
+for operation, usage, budget, settlement and recovery persistence. Consumers upgrade explicitly through their own reviewed package pins.
+Installing a core package never runs SQL, migrates a product database,
 changes user prices, or deploys an application. Each product owns its migration
 sequence; rollback uses a compatible application version and a tested data restore
 plan when needed. A new package release never rewrites historical quotes.

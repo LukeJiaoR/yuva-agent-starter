@@ -10,7 +10,7 @@ The gate runs:
 
 1. Vitest unit and integration suites.
 2. Boundary validation preventing app/domain imports from reusable packages.
-3. Production builds for workspaces that define them.
+3. The Vite web production build. The API runs directly as Node.js source.
 
 ## Epic #1 acceptance gate
 
@@ -81,7 +81,7 @@ Set a dedicated database when needed:
 TEST_DATABASE_URL=postgresql://starter:starter@localhost:5432/starter_agent npm test
 ```
 
-Locally, PostgreSQL-dependent tests may skip when no database URL is reachable. In CI, absence is a failure. Never point tests at a production database.
+Without a reachable database, some local PostgreSQL-dependent tests skip and other suites fail. The acceptance gate requires an explicit `TEST_DATABASE_URL` and fails on skipped or missing acceptance coverage; CI treats absence as failure. Never point tests at a production database.
 
 ## Runtime matrix
 
