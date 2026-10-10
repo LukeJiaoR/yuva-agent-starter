@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import net from 'node:net';
 import pg from 'pg';
+import { prepareTestDatabase } from '../starter-app/tests/helpers/database.js';
 
 it('importing the app factory does not start a server in development', async () => {
   const env = { ...process.env, NODE_ENV: 'development' };
@@ -28,6 +29,7 @@ it.each(['fixed', 'token'])('%s runnable example settles, replays and cleans its
   const port = probe.address().port;
   await new Promise((resolve) => probe.close(resolve));
   const admin = new pg.Pool({ connectionString: databaseUrl, connectionTimeoutMillis: 5000 });
+  await prepareTestDatabase(admin);
   const child = spawn(process.execPath, ['scripts/run-product-example.mjs', strategy], {
     env: { ...process.env, NODE_ENV: 'development', TEST_DATABASE_URL: databaseUrl, EXAMPLE_PORT: String(port) },
   });

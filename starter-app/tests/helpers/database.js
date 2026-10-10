@@ -1,6 +1,20 @@
 import pg from 'pg';
 import { randomUUID } from 'node:crypto';
-import { migrateDatabase } from '../../../scripts/migrations.mjs';
+import { lockDatabaseMigrations, migrateDatabase } from '../../../scripts/migrations.mjs';
+
+/** Shared test prerequisite, before any disposable schema can own the extension. */
+export async function prepareTestDatabase(admin) {
+  const bootstrap = await admin.connect();
+  try {
+    await bootstrap.query('BEGIN');
+    await lockDatabaseMigrations(bootstrap);
+    await bootstrap.query('CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public');
+    await bootstrap.query('COMMIT');
+  } catch (error) {
+    await bootstrap.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally { bootstrap.release(); }
+}
 
 export async function isolatedDatabase({ migrate = true } = {}) {
   const url = process.env.TEST_DATABASE_URL || 'postgresql://ziwei:changeme_in_production@localhost:45432/ziwei';
@@ -13,6 +27,9 @@ export async function isolatedDatabase({ migrate = true } = {}) {
     await admin.end();
   };
   try {
+    // Keep the shared extension outside disposable schemas. Use the same lock
+    // as production migrations; release this transaction before migrating.
+    await prepareTestDatabase(admin);
     await admin.query(`CREATE SCHEMA ${schema}`);
     const parsed = new URL(url);
     parsed.searchParams.set('options', `-csearch_path=${schema},public`);
