@@ -2,6 +2,7 @@ import express from 'express';
 import crypto from 'node:crypto';
 import {
   createAgentRuntime,
+  AgentRuntimeError,
   createStreamEmitter,
   writeSseEvent,
   setSseHeaders,
@@ -121,7 +122,9 @@ export function createChatStreamRoutes({
         // Reverse recent 20 messages into chronological order
         history = (histRes.rows || []).slice().reverse();
       } catch {
-        history = [];
+        throw new AgentRuntimeError('persistence_failure', 'conversation_history_unavailable',
+          'Conversation history is temporarily unavailable. Please try again.',
+          { status: 503, retryable: true });
       }
 
       // Compute deterministic domain facts and snapshot
