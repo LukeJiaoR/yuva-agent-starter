@@ -1,8 +1,10 @@
 import 'dotenv/config';
 import pg from 'pg';
-import { createRecoveryRunner, createOperationRecoveryStore, createOperationSettlementStore,
+import { createRecoveryRunner, createOperationRecoveryStore,
   createFixedOperationPricingPolicy, createTokenPricingPolicy } from '@yuva/billing-core';
 import { createUsageStore } from '../starter-app/server/stores/usageStore.js';
+import { persistRecoveredChatResult } from '../starter-app/server/domain/chatResultPersistence.js';
+import { createChatRecoverySettlementStore, listChatProjectionReviews } from '../starter-app/server/domain/chatRecovery.js';
 
 const args = process.argv.slice(2);
 const options = { dryRun: true };
@@ -24,9 +26,12 @@ const policies = [createFixedOperationPricingPolicy({ credits: 0 }), createToken
   inputRate: { credits: 0, tokens: 1 }, outputRate: { credits: 0, tokens: 1 } })];
 try {
   const runner = createRecoveryRunner({ recoveryStore: createOperationRecoveryStore({ db }),
-    settlementStore: createOperationSettlementStore({ db }), usageStore: createUsageStore({ db }),
+    settlementStore: createChatRecoverySettlementStore({ db }), usageStore: createUsageStore({ db }),
+    persistResult: persistRecoveredChatResult,
     resolvePolicy: (id, version) => policies.find((policy) => policy.id === id && policy.version === version) });
-  process.stdout.write(JSON.stringify(await runner.run(options), null, 2) + '\n');
+  const result = await runner.run(options);
+  result.projectionReviews = await listChatProjectionReviews({ db, operationId: options.operationId, limit: options.limit ?? 20 });
+  process.stdout.write(JSON.stringify(result, null, 2) + '\n');
 } catch (error) {
   process.stderr.write(JSON.stringify({ error: /^[a-z_]{1,80}$/u.test(error.code || '') ? error.code : 'recovery_failed' }) + '\n');
   process.exitCode = 1;

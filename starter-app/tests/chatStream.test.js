@@ -176,17 +176,30 @@ describe('Chat runtime with durable operations and usage (real PostgreSQL)', () 
     expect(replay.events.join('')).toContain('Saved despite disconnect');
     expect(provider).toHaveBeenCalledTimes(1);
   });
-  it('isolates conversation history across accounts and concurrent request streams', async () => {
+  it('rejects foreign conversations before provider execution without leaking history', async () => {
     const otherId = randomUUID(), conversationId = randomUUID();
     await db.query('INSERT INTO users(id) VALUES($1)', [otherId]);
     await db.query('INSERT INTO conversations(id,user_id,domain_key) VALUES($1,$2,$3)', [conversationId, otherId, 'test']);
     await db.query("INSERT INTO messages(conversation_id,role,content) VALUES($1,'user','Private secret')", [conversationId]);
-    const provider = vi.fn(async ({ messages, onText }) => { expect(JSON.stringify(messages)).not.toContain('Private secret'); await onText(messages.at(-1).content); return {}; });
+    const provider = vi.fn();
     const handler = route(provider);
-    const [a, b] = await Promise.all([send(handler, { question: 'Question A', conversationId }), send(handler, { question: 'Question B' })]);
+    const rejected = await send(handler, { question: 'Question A', conversationId });
+    expect(rejected.status).toHaveBeenCalledWith(403);
+    expect(provider).not.toHaveBeenCalled();
+    expect(JSON.stringify([rejected.events, rejected.json.mock.calls])).not.toContain('Private secret');
+    expect((await db.query('SELECT id FROM ai_operations WHERE account_id=$1', [userId])).rows).toHaveLength(0);
+    expect((await db.query('SELECT content FROM messages WHERE conversation_id=$1', [conversationId])).rows)
+      .toEqual([{ content: 'Private secret' }]);
+  });
+  it('isolates concurrent streams for two permitted requests', async () => {
+    const provider = vi.fn(async ({ messages, onText }) => { await onText(messages.at(-1).content); return {}; });
+    const handler = route(provider);
+    const [a, b] = await Promise.all([send(handler, { question: 'Question A' }), send(handler, { question: 'Question B' })]);
     expect(a.events.join('')).toContain('Question A');
     expect(a.events.join('')).not.toContain('Question B');
     expect(b.events.join('')).toContain('Question B');
+    expect(b.events.join('')).not.toContain('Question A');
+    expect(provider).toHaveBeenCalledTimes(2);
   });
   it('rejects unauthenticated and insufficient-credit requests before external calls', async () => {
     const provider = vi.fn();

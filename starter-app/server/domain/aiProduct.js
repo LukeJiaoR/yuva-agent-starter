@@ -1,6 +1,7 @@
 import { createFixedOperationPricingPolicy, createTokenPricingPolicy, createOperationBillingPort,
   creditInteger, invariant, validateLimits } from '@yuva/billing-core';
 import { PricingCatalog } from './pricing.config.js';
+import { withChatProjection, persistChatProjection, persistDefaultTextResult } from './chatResultPersistence.js';
 
 export function publicQuote(quote) {
   return { version: 1, strategy: quote.policyId, policyVersion: quote.policyVersion, unit: quote.unit,
@@ -43,14 +44,17 @@ export function createAiProduct({ env = process.env, configuration, policy, eval
           return { ...result, requiredCredits: facts.quote.reserveCredits };
         } }, policy: pricing, executionLimits,
         readUsage: (identity) => usageStore.summary(identity), metadata: ({ request }) => ({ conversation_id: request.conversationId }),
-        evaluateFulfillment: evaluateFulfillment ?? (({ operation, output }) => ({ status: 'ready', accountId: operation.accountId,
-          ruleVersion: '1', resultId: operation.id, artifacts: [{ id: operation.id, accountId: operation.accountId, type: 'text', state: 'available', text: output }] })),
-        persistResult: persistResult ?? (async ({ client, ledgerRequest, output, providerResult }) => {
-          const billableTokens = providerResult?.usage?.source === 'provider' ? providerResult.usage.totalTokens ?? null : null;
-          await client.query(`UPDATE credit_usage_requests SET assistant_text=$2,billable_tokens=$3,settled_at=NOW(),updated_at=NOW()
-            WHERE id=$1`, [ledgerRequest.id, output, billableTokens]);
-          return { id: ledgerRequest.id };
-        }),
+        evaluateFulfillment: async (context) => {
+          const { operation, output } = context;
+          const fulfillment = evaluateFulfillment ? await evaluateFulfillment(context)
+            : { status: 'ready', accountId: operation.accountId, ruleVersion: '1', resultId: operation.id,
+              artifacts: [{ id: operation.id, accountId: operation.accountId, type: 'text', state: 'available', text: output }] };
+          return withChatProjection(fulfillment, context, { customWriter: Boolean(persistResult) });
+        },
+        persistResult: async (facts) => {
+          if (facts.fulfillment?.starterChatProjection) await persistChatProjection(facts);
+          return persistResult ? persistResult(facts) : persistDefaultTextResult(facts);
+        },
       });
     },
   };

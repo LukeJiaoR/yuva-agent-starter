@@ -1,5 +1,58 @@
 # Operation recovery
 
+## Starter chat projection
+
+The default starter product stages `fulfillment.starterChatProjection` version 1
+before settlement. It contains the account/request identity, stable conversation
+ID, original question, approved visible reply and the application writer version.
+Conversation/messages, legacy result display and the financial terminal state are
+then written with the same settlement transaction client. Database errors and
+zero-row ownership/message writes fail the transaction; they are not empty success.
+
+An automatic conversation ID is a deterministic UUIDv5 scoped to account and
+client request ID, selected before reservation. The legacy input fingerprint still
+records an omitted client conversation ID as null. Existing explicit IDs keep their
+ownership checks. A same-key replay returns the staged conversation and reply
+without new generation, new messages or another debit.
+
+The starter recovery CLI uses the same default chat writer. Unknown COMMIT results
+must be reconciled from persisted financial state: a committed operation is replayed,
+otherwise its staged projection is applied atomically. Do not rerun generation.
+
+Legacy candidates missing projection input, unknown projection versions and custom
+writers unavailable to the CLI are deferred with bounded error codes. No original
+question or conversation ID is fabricated. Existing terminal records with missing
+history are not automatically repaired or billed again. Operators must review these
+legacy/custom cases; a policy-only dry-run decision does not establish that a product
+writer is available or that application will succeed. Before the frozen deadline,
+unavailable projection writers leave financial reconciliation pending.
+
+The existing consumer-protection expiry policy is not extended by missing projection
+data. Under the account/operation locks, the application recovery adapter verifies
+the persisted `onExpiry: waive` policy, database deadline and current recovery epoch.
+For an unavailable projection writer, it uses the existing financial `release` path
+instead of reporting successful free chat delivery. The generated canonical evidence
+is preserved, no history is fabricated, and the same atomic decision records
+`starterChatProjection: { status: 'deferred', reason, manualReview: true }`.
+The CLI's separate `projectionReviews` list shows funds released versus projection
+deferred, including subsequent runs when no financial action remains. Valid default
+projections still follow the normal no-charge settlement path. A caller-supplied
+waiver reason or timestamp cannot bypass the persisted deadline/lease checks.
+
+Custom `evaluateFulfillment` fields are preserved; `starterChatProjection` is a
+reserved application extension field. A custom `persistResult` replaces the default
+legacy ledger writer, is called once per actual apply using the same transaction
+client, and never silently falls back on failure. Chat projection writes are in that
+transaction too. The CLI cannot reconstruct an injected JavaScript function: use an
+explicitly configured recovery integration for custom writers, or review manually.
+Exactly-once external, nontransactional side effects are not guaranteed across an
+unknown commit and retry. Fully custom `aiProduct.createBilling` implementations own
+their persistence contract; the default product cannot impose it on external code.
+
+`chatPersistence.test.js` exercises real PostgreSQL rollback, ownership races,
+zero-charge/fixed/token pricing, concurrent replay, both unknown-COMMIT outcomes,
+the actual recovery CLI and legacy/custom deferral.
+
 The recovery runner queries existing operations and repairs financial state. It
 has no generation interface and never automatically resubmits a paid task.
 
