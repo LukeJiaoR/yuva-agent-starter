@@ -22,7 +22,7 @@ export function productionProblems(env) {
   };
   if (env.NODE_ENV !== 'production') errors.push('NODE_ENV: must be production');
   if (env.ALLOW_DEV_GUEST !== 'false') errors.push('ALLOW_DEV_GUEST: must be false');
-  if (!['openai', 'anthropic', 'deepseek', 'ollama'].includes(env.AI_PROVIDER)) errors.push('AI_PROVIDER: choose a supported real adapter');
+  if (!['openai', 'anthropic'].includes(env.AI_PROVIDER)) errors.push('AI_PROVIDER: choose openai or anthropic');
   const database = required('DATABASE_URL');
   if (database) { try { if (!['postgres:', 'postgresql:'].includes(new URL(database).protocol)) throw new Error(); } catch { errors.push('DATABASE_URL: invalid PostgreSQL URL'); } }
   for (const key of ['CORS_ORIGIN', 'CLERK_AUTHORIZED_PARTIES']) {
@@ -41,7 +41,7 @@ export function productionProblems(env) {
     required('OPENAI_MODEL');
     const base = required('OPENAI_BASE_URL');
     if (base) { try { const url = new URL(base); if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search) throw new Error(); } catch { errors.push('OPENAI_BASE_URL: invalid provider URL'); } }
-    if (env.AI_PROVIDER !== 'ollama') required('OPENAI_API_KEY');
+    required('OPENAI_API_KEY');
   }
   return errors;
 }
