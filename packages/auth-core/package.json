@@ -7,11 +7,9 @@
   "scripts": {
     "test": "vitest run"
   },
-  "dependencies": {
-    "@clerk/backend": "^3.16.3"
-  },
   "devDependencies": {
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "@clerk/backend": "^3.16.3"
   },
   "license": "MIT",
   "exports": {
@@ -30,5 +28,13 @@
     "type": "git",
     "url": "git+ssh://git@github.com/LukeJiaoR/yuva-agent-starter.git",
     "directory": "packages/auth-core"
+  },
+  "peerDependencies": {
+    "@clerk/backend": "^3.16.3"
+  },
+  "peerDependenciesMeta": {
+    "@clerk/backend": {
+      "optional": true
+    }
   }
 }

@@ -1,17 +1,4 @@
-import { verifyToken } from '@clerk/backend';
-import { TokenVerificationErrorReason } from '@clerk/backend/errors';
 import { authenticationError, authInfrastructureError, createRequestAuthMiddleware } from './requestAuth.js';
-
-const INVALID_TOKEN_REASONS = new Set([
-  TokenVerificationErrorReason.TokenVerificationFailed,
-  TokenVerificationErrorReason.TokenExpired,
-  TokenVerificationErrorReason.TokenInvalid,
-  TokenVerificationErrorReason.TokenInvalidAlgorithm,
-  TokenVerificationErrorReason.TokenInvalidAuthorizedParties,
-  TokenVerificationErrorReason.TokenInvalidSignature,
-  TokenVerificationErrorReason.TokenNotActiveYet,
-  TokenVerificationErrorReason.TokenIatInTheFuture,
-]);
 
 function normalizeOrigin(value) {
   try {
@@ -53,59 +40,9 @@ function readBearerToken(req) {
   return { kind: 'present', token: match[1] };
 }
 
-function isInvalidClerkTokenError(error) {
-  return INVALID_TOKEN_REASONS.has(error?.reason);
-}
-
-function isInvalidSignatureError(error) {
-  return error?.reason === TokenVerificationErrorReason.TokenInvalidSignature;
-}
-
-function verificationErrors(verification) {
-  return Array.isArray(verification?.errors)
-    ? verification.errors.filter(Boolean)
-    : [];
-}
-
-function shouldRetryWithClerkJwks(verification) {
-  const errors = verificationErrors(verification);
-  return errors.length > 0 && errors.every(isInvalidSignatureError);
-}
-
-async function verifyClerkToken(tokenVerifier, token, {
-  jwtKey,
-  secretKey,
-  authorizedParties,
-}) {
-  if (!jwtKey) {
-    return tokenVerifier(token, {
-      secretKey,
-      authorizedParties,
-    });
-  }
-
-  try {
-    const verification = await tokenVerifier(token, {
-      jwtKey,
-      authorizedParties,
-    });
-    if (!secretKey || !shouldRetryWithClerkJwks(verification)) return verification;
-    return tokenVerifier(token, {
-      secretKey,
-      authorizedParties,
-    });
-  } catch (error) {
-    if (!secretKey || !isInvalidSignatureError(error)) throw error;
-    return tokenVerifier(token, {
-      secretKey,
-      authorizedParties,
-    });
-  }
-}
-
 export async function verifyClerkRequest(req, {
   env = process.env,
-  tokenVerifier = verifyToken,
+  tokenVerifier,
 } = {}) {
   const bearer = readBearerToken(req);
   if (bearer.kind !== 'present') return bearer;
@@ -118,40 +55,10 @@ export async function verifyClerkRequest(req, {
   }
 
   try {
-    const verification = await verifyClerkToken(tokenVerifier, bearer.token, {
-      jwtKey,
-      secretKey,
-      authorizedParties,
-    });
-    const errors = verificationErrors(verification);
-    if (errors.length) {
-      if (errors.every(isInvalidClerkTokenError)) {
-        return { kind: 'invalid', token: null };
-      }
-      console.error(
-        'Clerk token verification unavailable:',
-        errors[0]?.message || errors[0],
-      );
-      return { kind: 'unavailable', token: null };
-    }
-
-    const hasVerificationEnvelope = verification
-      && (Object.prototype.hasOwnProperty.call(verification, 'data')
-        || Object.prototype.hasOwnProperty.call(verification, 'errors'));
-    const claims = hasVerificationEnvelope ? verification.data : verification;
-    const userId = String(claims?.sub || '').trim();
-    if (!userId) return { kind: 'invalid', token: null };
-    return {
-      kind: 'authenticated',
-      claims,
-      sessionId: String(claims.sid || '').trim() || null,
-      userId,
-    };
-  } catch (error) {
-    if (isInvalidClerkTokenError(error)) {
-      return { kind: 'invalid', token: null };
-    }
-    console.error('Clerk token verification unavailable:', error?.message || error);
+    const { verifyClerkIdentity } = await import('./clerkVerification.js');
+    return await verifyClerkIdentity(bearer.token, { jwtKey, secretKey, authorizedParties, tokenVerifier });
+  } catch {
+    console.error('Clerk authentication adapter unavailable; ensure @clerk/backend is installed');
     return { kind: 'unavailable', token: null };
   }
 }
@@ -192,7 +99,7 @@ function requestAuthOptions({
   profileUnavailableError = 'User profile is temporarily unavailable',
   profileUnavailableCode = 'user_profile_unavailable',
   env = process.env,
-  tokenVerifier = verifyToken,
+  tokenVerifier,
 } = {}) {
   const useClerk = verifyRequest === undefined;
   if (!useClerk && (typeof verifyRequest !== 'function' || typeof findUser !== 'function')) {

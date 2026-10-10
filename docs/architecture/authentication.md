@@ -1,11 +1,36 @@
 # Authentication adapters
 
 Status: source-level implementation for the identity portion of issue #50.
-This change does not publish a core release, change existing consumer pins, or
-make the Clerk SDK an optional dependency. Consumers need an artifact containing
-this change before using the new options; existing released artifacts may ignore
-unknown options. Usage-store ownership and independent-consumer acceptance remain
-separate work.
+This change does not publish a core release or change existing consumer pins.
+Consumers need an artifact containing these changes before using the new options;
+existing released artifacts may ignore unknown options or still require the Clerk
+SDK. Usage-store ownership and independent-consumer acceptance remain separate work.
+
+## Optional Clerk dependency
+
+Current-source `@yuva/auth-core` declares `@clerk/backend` as an optional peer and
+loads its verification module only when Clerk credential verification is needed.
+Following [npm's optional-peer contract](https://docs.npmjs.com/cli/v10/configuring-npm/package-json#peerdependenciesmeta),
+a consumer that uses its own request verifier does not need to install Clerk.
+Importing the package root, security helpers, or the custom authentication
+middleware does not load the SDK.
+
+The default starter application explicitly depends on `@clerk/backend`, preserving
+its Clerk setup. When adopting a future artifact with this dependency boundary,
+existing Clerk consumers must declare a compatible SDK directly in their own
+application (`@clerk/backend: ^3.16.3`) and update their lockfile. Do not remove it
+from a Clerk consumer merely because auth-core's peer is optional. Existing
+published versions and consumer vendor pins are unchanged by this source work.
+
+A non-Clerk generated application can remove its direct Clerk dependency after
+supplying trusted `auth.verifyRequest` and `auth.findUser` composition. Keep the
+application's other required dependencies. Omitting the SDK does not enable guest
+access or disable credential checks: selecting Clerk with a credential while the
+SDK is absent returns 503 `authentication_unavailable`, with an operator-facing
+adapter-unavailable diagnostic. Missing/invalid credentials retain their existing
+required/optional authentication behavior. An injected token-level Clerk verifier
+still selects the Clerk adapter and requires the SDK for its verification/error
+contract; use the request-level port for a different identity system.
 
 ## Two trusted server ports
 
@@ -105,3 +130,11 @@ requests with deterministic local identity fixtures, no credentials or paid
 providers. It checks that rejected verification never reaches guest, database, or
 model execution. Live external identity-provider verification is product-specific
 and is not claimed by these fixtures.
+
+The release artifact test packs current source into temporary local tarballs and
+installs a separate consumer through npm. It asserts that Clerk is absent from
+both the lockfile and installed tree, imports all public roots, copies the
+product-owned application server, and exercises custom authentication plus
+missing-SDK fail-closed responses over real loopback HTTP. This is local artifact
+validation, not a release or a live identity-provider test. Installed-SDK tests
+separately preserve reason-code classification and signature-only JWKS fallback.

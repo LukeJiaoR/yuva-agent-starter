@@ -18,7 +18,8 @@
     "@yuva/ai-engine": "1.5.0",
     "@yuva/auth-core": "1.5.0",
     "@yuva/billing-core": "1.5.0",
-    "@yuva/context-engine": "1.5.0"
+    "@yuva/context-engine": "1.5.0",
+    "@clerk/backend": "^3.16.3"
   },
   "devDependencies": {
     "vitest": "^4.1.8",
