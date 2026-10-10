@@ -6,6 +6,7 @@ import {
   writeSseEvent,
   setSseHeaders,
   streamProviderText,
+  createProviderModel,
   countUnicodeTokens,
   createMeteredProvider,
   createBudgetedProvider,
@@ -35,6 +36,16 @@ export function createChatStreamRoutes({
 } = {}) {
   const router = express.Router();
   const { provider, model, executionLimits, capabilities } = product;
+  // Keep default transport identity aligned with the quoted/metered product.
+  // Credentials stay private to this route instance, never in public pricing.
+  const keyName = provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY';
+  const apiKey = env[keyName] ?? process.env[keyName];
+  const baseUrl = env.OPENAI_BASE_URL;
+  let providerConfig = null;
+  if (typeof callAIStream !== 'function' && provider !== 'mock') {
+    try { providerConfig = createProviderModel({ provider, model, apiKey, baseUrl }); }
+    catch { /* Defer invalid binding failure until execution, as before. */ }
+  }
   const identity = (input, accountId, clientRequestId) => ({
     accountId, clientRequestId, featureKey: product.featureKey,
     taskType: 'text', mode: 'stream', inputVersion: '1',
@@ -470,7 +481,6 @@ export function createChatStreamRoutes({
         return callAIStream(options);
       }
 
-      const provider = env.AI_PROVIDER || 'openai';
       if (provider === 'mock') {
         if ((env.NODE_ENV || process.env.NODE_ENV) === 'production') {
           const error = new Error('Mock provider is disabled in production');
@@ -482,17 +492,17 @@ export function createChatStreamRoutes({
         await options.onText(text);
         return createSyntheticProviderResult({ text, provider: 'mock', model: 'starter-local' });
       }
-      const isAnthropic = provider === 'anthropic';
-      const apiKey = isAnthropic ? env.ANTHROPIC_API_KEY : env.OPENAI_API_KEY;
-      const model = isAnthropic
-        ? (env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022')
-        : (env.OPENAI_MODEL || 'gpt-4o');
-
+      if (apiKey == null || !providerConfig) {
+        throw Object.assign(new Error('Provider configuration was unavailable at composition'), {
+          code: 'provider_unavailable', status: 503,
+        });
+      }
       return streamProviderText({
         provider,
         apiKey,
-        baseUrl: env.OPENAI_BASE_URL,
+        baseUrl,
         model,
+        modelFactory: () => providerConfig,
         systemPrompt: options.systemPrompt,
         messages: options.messages || [{ role: 'user', content: options.userPrompt }],
         onText: options.onText,
