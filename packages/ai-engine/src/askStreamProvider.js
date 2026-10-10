@@ -92,9 +92,11 @@ export function createProviderModel({
     };
   }
 
+  const selectedBaseUrl = String(baseUrl ?? "").trim()
+    || String(process.env.OPENAI_BASE_URL ?? "").trim() || "https://api.openai.com/v1";
   const openAI = openAIProviderFactory({
     apiKey,
-    baseURL: normalizeBaseUrl(baseUrl),
+    baseURL: normalizeBaseUrl(selectedBaseUrl),
     ...(fetchFn ? { fetch: fetchFn } : {}),
   });
   return {

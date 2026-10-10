@@ -134,10 +134,18 @@ describe('default transport binding matches the frozen quote and usage identity'
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('keeps invalid transport configuration from breaking pricing-only composition', async () => {
+  it('binds the official default for a blank URL without allowing later environment drift', async () => {
     const fixture = compose({ AI_PROVIDER: 'openai', OPENAI_API_KEY: 'fixture-key', OPENAI_BASE_URL: '' });
     expect(fixture.product.publicPricing.strategy).toBe('fixed');
-    await expect(fixture.invoke()).rejects.toMatchObject({ code: 'provider_unavailable' });
-    expect(boundary.transport).not.toHaveBeenCalled();
+    vi.stubEnv('OPENAI_BASE_URL', 'https://later-fixture.invalid/v1');
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ error: { message: 'Offline fixture' } }), {
+      status: 400, headers: { 'content-type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetch);
+    const actual = await vi.importActual('@yuva/ai-engine');
+    boundary.transport.mockImplementation(actual.streamProviderText);
+    await expect(fixture.invoke()).rejects.toBeDefined();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(String(fetch.mock.calls[0][0])).toBe('https://api.openai.com/v1/responses');
   });
 });
