@@ -8,9 +8,11 @@ runs SQL. Latest stable plus the prior minor remain supported until consumers ha
 upgrade evidence; a security fix can require an expedited upgrade. Only manifests
 with `development=false` are deployable release artifacts.
 
-The repository is private. Release assets are downloaded by authenticated `gh`,
-verified, and committed as tarballs in consumer `vendor/yuva-core/<version>`.
-This keeps credentials out of npm URLs, lockfiles and build containers. SHA-512
+This repository is public. Core bundles are available from its GitHub Releases.
+The release/upgrade scripts use `gh`; configure that tool separately if it requests
+authentication. Downloaded bundles are verified and vendored as tarballs in
+consumer `vendor/yuva-core/<version>`. Credentials never belong in npm URLs,
+lockfiles or build containers. SHA-512
 pins package bytes; `.core-release.json` pins the manifest SHA-256 and source SHA.
 Digests detect changes relative to a trusted pin, not independent authorship:
 review the authenticated source/tag and changed manifest in every upgrade PR.
@@ -84,7 +86,7 @@ node scripts/release/upgrade.mjs --target /path/to/product --tag core-v1.1.0 --a
 ```
 
 Default is a read-only plan. `--apply` only changes declared core dependencies,
-vendor artifacts and `.core-release.json`. Specify `--packages ziwei-app/server`
+vendor artifacts and `.core-release.json`. Specify `--packages app/server`
 for a non-workspace consumer, or a comma-separated list for multiple manifests.
 Use `--bundle /path` to consume an already downloaded bundle. Run npm lockfile
 update in the consumer, inspect the diff, then `npm ci`, `core:verify`, relevant

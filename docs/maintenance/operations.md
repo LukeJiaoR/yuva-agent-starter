@@ -130,7 +130,5 @@ under an existing release version.
 
 Node 24.14.0 full check: 102 tests passed and web build passed. Production Compose
 configuration validates using placeholders without printing expanded secrets.
-Ziwei Development deployed merged consumer SHA
-`40693c0b799d921add7375d1e6c49d5a12a5baf9` successfully. Local container builds
-were stopped while waiting for Docker Hub base-image metadata; no local container
+Local container builds were stopped while waiting for Docker Hub base-image metadata; no local container
 build success is claimed. The Node 24 CI job builds both portable images.
