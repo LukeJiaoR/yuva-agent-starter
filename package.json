@@ -49,7 +49,7 @@
     "@yuva/billing-core": "1.5.0"
   },
   "devDependencies": {
-    "concurrently": "^10.0.0",
+    "concurrently": "^10.0.6",
     "vitest": "^4.1.8"
   }
 }
