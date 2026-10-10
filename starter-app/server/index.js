@@ -22,6 +22,7 @@ export function createServer({
   operationStore,
   usageStore,
   aiProduct,
+  auth,
   config = {},
 } = {}) {
   const env = config.env || process.env;
@@ -66,6 +67,8 @@ export function createServer({
   const optionalAuth = createOptionalAuth({
     db: activeDb,
     env,
+    verifyRequest: auth?.verifyRequest,
+    findUser: auth?.findUser,
   });
   app.use(optionalAuth);
 

@@ -34,12 +34,17 @@ isolated dependencies. Product regression is a separate migration gate.
 
 | Component | Public seam | Default / product responsibility |
 | --- | --- | --- |
-| auth-core | tokenVerifier, findUser, bootstrapUser, db, env | Clerk default; product owns profile persistence and access rules |
+| auth-core | verifyRequest, tokenVerifier, findUser, bootstrapUser, db, env | Clerk default; request verification and local-user mapping are separate, product-owned ports |
 | ai-engine | request/domain/context/prompt/stream/validation/billing/memory/telemetry ports | Product composition supplies required ports; provider factories and fetch are injectable |
 | billing-core | db transaction interface, pricing/result callbacks, resetResult | PostgreSQL ledger mechanism; product owns prices, grants and result schema |
 | context-engine | units, budget, tokenCounter | Product selects eligible context and privacy rules |
 | admin-core | db, actor, action and bounded audit payload | Product owns permissions and management UI |
 | Future media | execution and artifact-store ports from Epic #1 contracts | No real media adapter is claimed; OpenAI-compatible images evaluated after #1 |
+
+The source-level `verifyRequest` seam and its explicit `findUser` mapping are
+documented in [Authentication adapters](authentication.md). The legacy Clerk
+exports and `tokenVerifier` option remain available. This does not remove the
+Clerk SDK dependency or publish an updated consumer artifact.
 
 Ports are trusted server composition, never arbitrary client-selected modules.
 Each adapter validates the capabilities and configuration it claims. Missing
