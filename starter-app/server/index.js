@@ -26,7 +26,7 @@ export function createServer({
   config = {},
 } = {}) {
   const env = config.env || process.env;
-  const product = aiProduct ?? createAiProduct({ env, configuration: config.pricing });
+  const product = aiProduct ?? createAiProduct({ env, configuration: config.pricing, inputVersion: config.inputVersion });
   const app = express();
 
   const configuredOrigins = String(env.CORS_ORIGIN || env.FRONTEND_URL || '')
