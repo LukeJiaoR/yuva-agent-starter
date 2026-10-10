@@ -37,7 +37,7 @@
     "@yuva/billing-core": "file:vendor/yuva-core/1.2.0/yuva-billing-core-1.2.0.tgz"
   },
   "devDependencies": {
-    "concurrently": "^10.0.0",
+    "concurrently": "^10.0.6",
     "vitest": "^4.1.8"
   }
 }
