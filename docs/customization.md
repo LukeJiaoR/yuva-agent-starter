@@ -12,6 +12,43 @@ Edit `starter-app/server/domain/adapter.js`.
 - Keep the snapshot stable enough to replay and audit.
 - Add tests for missing, malformed, boundary, and representative inputs.
 
+### Version the input and prompt contract
+
+Use an explicit product-owned `inputVersion` when input interpretation, facts/schema,
+prompt semantics, or output validation changes enough that an old result should not
+be reused as a result of the new contract:
+
+```js
+const app = createServer({
+  db,
+  config: { inputVersion: 'report-schema2-prompt3', pricing: reportPricing },
+});
+```
+
+For an injected product, set `createAiProduct({ inputVersion: 'report-schema2-prompt3',
+configuration: reportPricing })` and pass it as `aiProduct`. That product's version
+takes precedence over `config.inputVersion`. The version is captured when creating
+the server/route; editing the configuration or product object afterward does not
+change running requests. Construct a new server to adopt a new contract.
+
+The default remains `'1'`; explicit versions must be nonempty strings of at most
+80 characters. This is separate from core package versions and pricing-policy
+versions. A package upgrade or price change alone does not require a contract bump.
+No client `inputVersion`, `input_version`, or `promptVersion` field selects it.
+
+For persisted operations, the same key, input and version replay the saved result.
+The same key under a different server version returns 409 `idempotency_conflict`
+without another provider call, reservation or charge. The old operation's version,
+quote and result stay unchanged. Use a new request key only when deliberately
+starting a new operation under the new contract; do not automatically mint keys on
+retry or conflict, since that could create another billable operation. Changing the version does not cancel existing operations. In-flight work and
+recovery continue using their persisted facts.
+
+Only `/api/chat/stream` creates billable operations in the current application;
+fixed and token products share this path. `/api/analyze` is deterministic and does
+not create an operation. Historical ledger-only records that predate operations
+have no version to compare and retain their existing replay compatibility.
+
 ## 2. Ground the prompts
 
 Edit `starter-app/server/domain/prompts.js`.

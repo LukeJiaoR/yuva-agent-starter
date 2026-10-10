@@ -10,8 +10,16 @@ export function publicQuote(quote) {
     expiresAt: quote.expiresAt, missingUsage: quote.missingUsage };
 }
 
+/** Product-owned input/prompt/schema contract, independent of prices and package versions. */
+export function resolveProductInputVersion(inputVersion = '1') {
+  invariant(typeof inputVersion === 'string' && inputVersion.trim().length > 0 && inputVersion.length <= 80,
+    'invalid_input_version');
+  return inputVersion;
+}
+
 /** Trusted product composition, never constructed from HTTP request bodies. */
-export function createAiProduct({ env = process.env, configuration, policy, evaluateFulfillment, persistResult } = {}) {
+export function createAiProduct({ env = process.env, configuration, inputVersion, policy, evaluateFulfillment, persistResult } = {}) {
+  const version = resolveProductInputVersion(inputVersion);
   const config = structuredClone(configuration ?? { strategy: env.PRICING_STRATEGY ?? 'fixed',
     featureKey: PricingCatalog.features.deep_reasoning.key, credits: PricingCatalog.features.deep_reasoning.credits,
     inputRate: { credits: 1, tokens: 1000 }, outputRate: { credits: 2, tokens: 1000 } });
@@ -31,6 +39,7 @@ export function createAiProduct({ env = process.env, configuration, policy, eval
   const capabilities = { taskType: 'text', outputLimit: true, abort: true };
   const preview = pricing.quote({ taskType: 'text', mode: 'stream', featureKey: config.featureKey }, executionLimits);
   return {
+    inputVersion: version,
     provider, model, executionLimits, capabilities, featureKey: config.featureKey, policy: pricing,
     publicPricing: { version: 1, strategy: pricing.id, policyVersion: pricing.version, unit: 'credit',
       reserveCredits: preview.reserveCredits, authorizedCredits: preview.authorizedCredits,

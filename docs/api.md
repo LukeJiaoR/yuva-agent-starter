@@ -49,6 +49,8 @@ Example body:
 
 `requestId` is the idempotency key. Use 1 to 120 URL-safe letters, numbers, dots, underscores, colons, or hyphens. Reusing a completed request returns its terminal result instead of charging twice. `conversationId`, when supplied, must be a UUID.
 
+Persisted operations also include a server-owned input-contract version (default `'1'`). Reusing the same key after the product changes this version returns 409 `idempotency_conflict`; client version fields cannot override it. Keep the same key for retries. Use a new key only to deliberately start a new operation, which may charge again. See [product contract versioning](customization.md#version-the-input-and-prompt-contract).
+
 The response uses Server-Sent Events. Event names include `start`, status/progress events, validated text, `usage`, `done`, and `error`. Clients must parse frames across arbitrary network chunks and stop on the terminal event. The included web client demonstrates this behavior.
 
 ## Authentication

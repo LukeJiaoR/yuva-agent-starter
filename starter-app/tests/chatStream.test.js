@@ -156,6 +156,59 @@ describe('Chat runtime with durable operations and usage (real PostgreSQL)', () 
     expect(provider).toHaveBeenCalledTimes(1);
     expect((await facts('same')).rows).toHaveLength(1);
   });
+  it.each(['fixed', 'token'])('freezes the %s product input version and rejects changed-version replay without financial writes', async (strategy) => {
+    const provider = vi.fn(async ({ onText }) => {
+      await onText('Versioned product result');
+      return { usage: { source: 'provider', inputTokens: 1000, outputTokens: 500, totalTokens: 1500 } };
+    });
+    const pricing = strategy === 'fixed'
+      ? { strategy, featureKey: 'versioned_result', credits: 2 }
+      : { strategy, featureKey: 'versioned_result', inputRate: { credits: 1, tokens: 1000 },
+        outputRate: { credits: 2, tokens: 1000 }, limits: { maxInputTokens: 4000, maxOutputTokens: 1000 } };
+    const config = { inputVersion: 'schema1-prompt1', pricing };
+    const original = route(provider, { config });
+    config.inputVersion = 'changed-after-composition';
+    const request = { requestId: 'versioned-key', inputVersion: 'client-version', input_version: 'client-version' };
+    expect((await send(original, request)).events.join('')).toContain('event: done');
+
+    async function snapshot() {
+      const result = {};
+      for (const table of ['credit_accounts', 'credit_grants', 'credit_usage_requests', 'credit_transactions']) {
+        result[table] = (await db.query(`SELECT * FROM ${table} WHERE user_id=$1 ORDER BY ${table === 'credit_accounts' ? 'user_id' : 'id'}`, [userId])).rows;
+      }
+      result.allocations = (await db.query(`SELECT a.* FROM credit_usage_allocations a
+        JOIN credit_usage_requests r ON r.id=a.usage_request_id WHERE r.user_id=$1 ORDER BY a.id`, [userId])).rows;
+      result.operations = (await db.query('SELECT * FROM ai_operations WHERE account_id=$1 ORDER BY id', [userId])).rows;
+      result.calls = (await facts('versioned-key')).rows;
+      return result;
+    }
+    const before = await snapshot();
+    expect(before.operations[0].input_version).toBe('schema1-prompt1');
+    expect(before.credit_usage_requests[0].settled_credits).toBe(2);
+    expect(before.calls).toHaveLength(1);
+
+    // A fresh application instance with the same contract replays after restart.
+    const restarted = route(provider, { config: { inputVersion: 'schema1-prompt1', pricing } });
+    expect((await send(restarted, { ...request, inputVersion: 'another-client-version' })).events.join('')).toContain('"replayed":true');
+    expect(provider).toHaveBeenCalledTimes(1);
+    expect(await snapshot()).toEqual(before);
+
+    const upgraded = route(provider, { config: { inputVersion: 'schema2-prompt1', pricing } });
+    const conflict = await send(upgraded, { ...request, inputVersion: 'schema1-prompt1' });
+    expect(conflict.status).toHaveBeenCalledWith(409);
+    expect(JSON.stringify(conflict.json.mock.calls)).toContain('idempotency_conflict');
+    expect(provider).toHaveBeenCalledTimes(1);
+    expect(await snapshot()).toEqual(before);
+
+    // An explicit new key creates a new operation under the new server contract.
+    expect((await send(upgraded, { ...request, requestId: 'new-version-key' })).events.join('')).toContain('event: done');
+    const after = await snapshot();
+    expect(after.operations.map((row) => row.input_version).sort()).toEqual(['schema1-prompt1', 'schema2-prompt1']);
+    expect(after.operations.find((row) => row.id === before.operations[0].id)).toEqual(before.operations[0]);
+    expect(after.credit_usage_requests).toHaveLength(2);
+    expect(after.credit_usage_requests.reduce((total, row) => total + row.settled_credits, 0)).toBe(4);
+    expect(provider).toHaveBeenCalledTimes(2);
+  });
   it('keeps legacy settled replay compatible without inventing a quote or call', async () => {
     const reserved = await reserveFeatureCredits({ db, userId, featureKey: 'deep_reasoning', clientRequestId: 'legacy', credits: 2 });
     await settleFeatureCredits({ db, userId, requestId: reserved.request.id, creditsUsed: 2,

@@ -21,7 +21,7 @@ import {
   assertCapability,
 } from '@yuva/billing-core';
 import { DomainPrompts } from '../domain/prompts.js';
-import { createAiProduct, publicQuote } from '../domain/aiProduct.js';
+import { createAiProduct, publicQuote, resolveProductInputVersion } from '../domain/aiProduct.js';
 import { chatConversationId } from '../domain/chatResultPersistence.js';
 import { createUsageStore } from '../stores/usageStore.js';
 import { toPublicError } from '../http/errors.js';
@@ -38,6 +38,7 @@ export function createChatStreamRoutes({
 } = {}) {
   const router = express.Router();
   const { provider, model, executionLimits, capabilities } = product;
+  const inputVersion = resolveProductInputVersion(product.inputVersion);
   // Keep default transport identity aligned with the quoted/metered product.
   // Credentials stay private to this route instance, never in public pricing.
   const keyName = provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY';
@@ -50,7 +51,7 @@ export function createChatStreamRoutes({
   }
   const identity = (input, accountId, clientRequestId) => ({
     accountId, clientRequestId, featureKey: product.featureKey,
-    taskType: 'text', mode: 'stream', inputVersion: '1',
+    taskType: 'text', mode: 'stream', inputVersion,
     input: { question: input.question, subject: input.subject || 'Default Subject', parameters: input.parameters || {},
       conversationId: input.conversationId || input.conversation_id || null, domainKey: adapter.domainKey },
   });
