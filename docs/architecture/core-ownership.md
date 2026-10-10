@@ -45,7 +45,7 @@ Ports are trusted server composition, never arbitrary client-selected modules.
 Each adapter validates the capabilities and configuration it claims. Missing
 required implementations fail explicitly. Do not add a registry/plugin platform
 for interfaces already expressed as constructor arguments. Default stacks remain
-Node 24 (22 compatible), PostgreSQL 16, Express and React/Vite.
+Node 24.x only, PostgreSQL 16, Express and React/Vite.
 
 `assembleConversationContext` preserves all supplied chart/context units and
 messages in order; its token counter is diagnostic and the provider owns the

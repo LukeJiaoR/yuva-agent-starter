@@ -3,7 +3,7 @@
   "templateVersion": "1.0.0",
   "owner": "Repository maintainers",
   "reviewedAt": "2026-09-17",
-  "runtime": {"node": [22, 24], "recommendedNode": 24, "postgres": [16], "packageManager": "npm", "install": "npm ci"},
+  "runtime": {"node": [24], "recommendedNode": 24, "postgres": [16], "packageManager": "npm", "install": "npm ci"},
   "components": [
     {"id": "identity", "implementation": "@yuva/auth-core", "extension": "tokenVerifier/findUser/bootstrapUser/db/env", "owner": "Application maintainer"},
     {"id": "ai", "implementation": "@yuva/ai-engine", "extension": "provider factory/fetch/stream/validation ports", "owner": "AI integration maintainer"},

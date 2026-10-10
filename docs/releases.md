@@ -17,6 +17,16 @@ pins package bytes; `.core-release.json` pins the manifest SHA-256 and source SH
 Digests detect changes relative to a trusted pin, not independent authorship:
 review the authenticated source/tag and changed manifest in every upgrade PR.
 
+## Current runtime policy
+
+The current starter, generated products, maintained example, and core source
+support Node.js 24.x only (`>=24 <25`). The next versioned core release will carry
+this engine requirement and advertise only Node 24 in its compatibility manifest.
+Published 1.x tags, archives, hashes, and their recorded compatibility remain
+immutable. Historical release notes describe those original releases, not the
+current starter's support policy. The example retains its original core-v1.2.0
+vendor bundle while requiring Node 24 at the application boundary.
+
 ## Core 1.5.0 explicit provider-default output policy
 
 [Core 1.5.0](releases/1.5.0.md) adds an opt-in OpenAI Responses output-token
@@ -51,7 +61,7 @@ are not modified by this release.
 
 ## Release
 
-Merge and pass Node 22/24 CI first. On the selected clean main commit:
+Merge and pass Node 24 CI first. On the selected clean main commit:
 
 ```sh
 npm run release:pack -- --output .release

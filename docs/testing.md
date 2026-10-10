@@ -23,8 +23,8 @@ npm run ops:verify
 `test:acceptance` invokes the existing `npm test` (including boundary validation),
 reads Vitest's structured report and requires all 13 acceptance suites to contain
 passed assertions. Any failed or skipped test, absent suite, missing report or
-missing explicit database URL fails the command. CI uses this command on Node 22
-and 24 with its PostgreSQL 16 service; Node 24 also builds both portable containers.
+missing explicit database URL fails the command. CI uses this command on Node 24 with its PostgreSQL 16 service and also builds
+both portable containers.
 The command uses a temporary report directory and removes it afterward.
 
 The acceptance matrix below names executable assertions. All provider responses,
@@ -68,8 +68,8 @@ Local acceptance evidence on 2026-09-17, Node 24.14.0 / PostgreSQL: 27 files,
 222 passed, zero skipped; `npm run build` and `npm run ops:verify` passed.
 Negative checks: invoking `test:acceptance` without `TEST_DATABASE_URL` failed
 immediately; running `httpContract.test.js` with an explicit unreachable loopback
-database failed its setup instead of returning success. The PR's Node 22/24 CI
-must independently pass this same gate before merge.
+database failed its setup instead of returning success. Current PRs must
+independently pass this same gate on Node 24 before merge.
 
 ## PostgreSQL-backed HTTP contracts
 
@@ -85,7 +85,7 @@ Without a reachable database, some local PostgreSQL-dependent tests skip and oth
 
 ## Runtime matrix
 
-CI runs tests, boundary checks, and builds on Node.js 22 and 24. Node.js 24 is the recommended local and container runtime.
+Node.js 24.x is the only supported runtime for local development, generated products, CI, and containers. CI runs tests, boundary checks, and builds on Node.js 24. Engine checks reject Node.js 22 and other Node majors; those versions are not compatibility targets.
 
 ## Manual browser smoke
 

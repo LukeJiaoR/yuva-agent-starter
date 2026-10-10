@@ -4,7 +4,7 @@ Run the included text-assistant template locally with a mock model and a develop
 
 ## Requirements
 
-- Git, Node.js 24 (recommended) or 22.12+, and npm 10 (`npm@10.9.8` is declared)
+- Git, Node.js 24.x (`>=24 <25`), and npm 10 (`npm@10.9.8` is declared)
 - PostgreSQL 16+, or Docker with Compose v2 to run the included PostgreSQL 16 service
 - Available local ports: `5173` (web), `3000` (API), and `5432` (database)
 
@@ -115,7 +115,7 @@ See [Testing](testing.md) before running database-backed checks. A skipped or bl
 
 ## Troubleshooting
 
-- **`EBADENGINE`:** check `node --version` and select Node.js 24 or 22.12+. The project enforces its Node engine range.
+- **`EBADENGINE`:** check `node --version` and select Node.js 24.x. Node.js 22 and other Node majors are unsupported. The project enforces its Node engine range.
 - **`ECONNREFUSED` from setup:** wait for PostgreSQL to be healthy and verify the database URL and port. If Docker is used, inspect `docker compose ps` and `docker compose logs postgres` locally.
 - **`pgcrypto` extension error:** the baseline schema requires `pgcrypto`. Have your database administrator install or enable it if your PostgreSQL distribution or hosted plan does not provide it.
 - **Authentication/database errors:** confirm that the role and database exist and match `DATABASE_URL`. Changing a Compose password does not change the credentials inside an already initialized volume.

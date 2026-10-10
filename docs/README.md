@@ -35,6 +35,6 @@
 
 ## Runtime baseline and source of truth
 
-Node.js 24 is recommended, Node.js 22.12+ is the compatibility target, npm 10 is the declared package manager, and the database baseline is PostgreSQL 16+. The web app targets modern browsers; validate the browsers your product supports before release.
+Node.js 24.x is the only supported Node major, npm 10 is the declared package manager, and the database baseline is PostgreSQL 16+. The web app targets modern browsers; validate the browsers your product supports before release.
 
 Executable code, `.env.example`, `scripts/schema.sql`, `scripts/migrations/`, release manifests, and CI configuration define the current behavior. Historical release or test records are evidence for their recorded version, not a guarantee that the current checkout or a deployment has passed. Report documentation mismatches with a reproducible example.
