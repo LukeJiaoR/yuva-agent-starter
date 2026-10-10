@@ -17,6 +17,7 @@ describe('private release integrity and safe consumer upgrades', () => {
   afterAll(async () => fs.rm(temp, { recursive: true, force: true }));
   it('packs only declared public runtime files with per-component hashes', async () => {
     expect(manifest.packages).toHaveLength(5);
+    expect(manifest.compatibility.node).toEqual([24]);
     expect(manifest.compatibility.starterMigrations).toEqual([1, 2, 3, 4, 5, 6]);
     expect(manifest.compatibility.automaticMigrations).toBe(false);
     expect((await verifyBundle(bundle, { allowDevelopment: true })).version).toBe('1.5.0');
@@ -42,7 +43,10 @@ describe('private release integrity and safe consumer upgrades', () => {
     `;
     run(process.execPath, ['--input-type=module', '-e', source], isolated);
     const lock = await json(path.join(isolated, 'package-lock.json'));
-    for (const component of manifest.packages) expect(lock.packages[`node_modules/${component.name}`].integrity).toBe(component.integrity);
+    for (const component of manifest.packages) {
+      expect(lock.packages[`node_modules/${component.name}`].integrity).toBe(component.integrity);
+      expect(lock.packages[`node_modules/${component.name}`].engines.node).toBe('>=24 <25');
+    }
   }, 120000);
   it('refuses artifact tampering and replacement of an already pinned version', async () => {
     const corrupt = path.join(temp, 'corrupt'); await fs.cp(bundle, corrupt, { recursive: true });

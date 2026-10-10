@@ -11,7 +11,7 @@ No secret values are stored in these registries.
 
 ## Default supported deployment
 
-Node 24 recommended (22 compatible), PostgreSQL 16, Express API and Vite/nginx
+Node 24.x only, PostgreSQL 16, Express API and Vite/nginx
 frontend. Product-specific authentication/profile rules, pricing and delivery are
 injected at composition. This release does not implement a payment provider,
 marketing service or image/video generator. Their status is product-owned/deferred

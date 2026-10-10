@@ -23,5 +23,8 @@
   "devDependencies": {
     "vitest": "^4.1.8",
     "@yuva/admin-core": "file:../vendor/yuva-core/1.2.0/yuva-admin-core-1.2.0.tgz"
+  },
+  "engines": {
+    "node": ">=24 <25"
   }
 }

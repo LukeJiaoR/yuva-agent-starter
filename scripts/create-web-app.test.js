@@ -47,6 +47,19 @@ describe('create-web-app generator', () => {
     await expect(fs.access(path.join(target, 'starter-web', 'src', 'main.jsx'))).resolves.toBeUndefined();
   });
 
+  it('carries Node 24-only requirements into generated applications and their lockfile', async () => {
+    expect(result.status, result.stderr).toBe(0);
+    const lock = JSON.parse(await fs.readFile(path.join(target, 'package-lock.json'), 'utf8'));
+    for (const directory of ['', 'starter-app', 'starter-web']) {
+      const manifest = JSON.parse(await fs.readFile(path.join(target, directory, 'package.json'), 'utf8'));
+      expect(manifest.engines.node).toBe('>=24 <25');
+      expect(lock.packages[directory].engines.node).toBe('>=24 <25');
+    }
+    expect((await fs.readFile(path.join(target, '.nvmrc'), 'utf8')).trim()).toBe('24');
+    expect(await fs.readFile(path.join(target, '.npmrc'), 'utf8')).toMatch(/^engine-strict=true$/mu);
+    expect(await fs.readFile(path.join(target, '.github/workflows/ci.yml'), 'utf8')).toMatch(/^\s+node-version: \[24\]$/mu);
+  });
+
   it('writes ready-to-edit API and web environment files without copying local secrets', async () => {
     const apiEnv = await fs.readFile(path.join(target, 'starter-app', '.env'), 'utf8');
     const webEnv = await fs.readFile(path.join(target, 'starter-web', '.env'), 'utf8');

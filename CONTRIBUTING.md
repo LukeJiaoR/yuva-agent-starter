@@ -15,7 +15,7 @@ For a large behavior or API change, describe the use case before implementing it
 
 ## Develop locally
 
-Fork and clone the repository, create a topic branch, and follow the [quickstart](docs/quickstart.md). Use Node.js 24 and the declared npm 10 toolchain. A full verification run also needs a disposable PostgreSQL 16+ database.
+Fork and clone the repository, create a topic branch, and follow the [quickstart](docs/quickstart.md). Use Node.js 24.x (the only supported Node major) and the declared npm 10 toolchain. A full verification run also needs a disposable PostgreSQL 16+ database.
 
 ```bash
 npm ci

@@ -8,6 +8,10 @@ keeps its initialization provenance and `.core-release.json` records its current
 core. All five tarballs are exactly those published in core-v1.2.0 at
 `8290e3888a9a8c05f8a445eb953820b17cdc4669`.
 
+Use Node.js 24.x (`>=24 <25`; `.nvmrc` selects 24) and the declared npm 10
+toolchain. This application no longer supports Node 22. The published core-v1.2.0
+archives and their original compatibility metadata are unchanged.
+
 ```sh
 cd examples/customer-support
 npm ci
@@ -33,7 +37,7 @@ The package lock, manifests and archives are pinned here for the upgrade review.
 With those migrations, 29/29 original product tests and its Web build pass on
 Node 24.14.0 with real PostgreSQL. The legacy-schema upgrade test verifies existing
 balance preservation, concurrent reservation, frozen quotes and rollback. CI
-also installs and validates this independent consumer on Node 22 and 24.
+now installs and validates this independent consumer on Node 24 only.
 
 The migration runner applies files only when explicitly invoked by the product;
 package installation does not execute SQL. For an actual existing installation,

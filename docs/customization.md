@@ -55,7 +55,7 @@ Choose a provider in `starter-app/.env`, add only that provider's required crede
 - Domain inputs and output validation have tests.
 - Credits settle once and release on every failure path.
 - Auth, CORS, rate limits, secrets, and error redaction match the deployment.
-- `npm run check` passes on Node.js 22 and 24.
+- `npm run check` passes on Node.js 24.x.
 # Product pricing and delivery
 
 `createServer({config:{pricing}, aiProduct})` selects trusted application composition.
