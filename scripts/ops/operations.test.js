@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { verifyStack, productionProblems } from './config.mjs';
 import { inspectDatabase, probe } from './inspect.mjs';
+import { createAiProduct } from '../../starter-app/server/domain/aiProduct.js';
 
 describe('operations configuration and metadata-only monitoring', () => {
   const configured = { NODE_ENV: 'production', ALLOW_DEV_GUEST: 'false', DATABASE_URL: 'postgresql://example/db', CORS_ORIGIN: 'https://app.example.test',
@@ -17,6 +18,18 @@ describe('operations configuration and metadata-only monitoring', () => {
     const problems = productionProblems({ ...configured, ALLOW_DEV_GUEST: 'true', AI_PROVIDER: 'mock', CORS_ORIGIN: '*', OPENAI_API_KEY: '<key>' });
     expect(problems.length).toBeGreaterThan(2);
     expect(problems.join()).not.toContain(configured.AUTH_TOKEN_SECRET);
+  });
+  it.each(['openai', 'anthropic', 'mock', 'deepseek', 'ollama', 'unknown'])('matches the production application provider support for %s', (provider) => {
+    const env = { ...configured, AI_PROVIDER: provider, ANTHROPIC_API_KEY: 'fixture-key', ANTHROPIC_MODEL: 'fixture' };
+    const supported = ['openai', 'anthropic'].includes(provider);
+    const providerProblems = productionProblems(env).filter((problem) => problem.startsWith('AI_PROVIDER:'));
+    expect(providerProblems.length === 0).toBe(supported);
+    if (supported) {
+      expect(createAiProduct({ env }).provider).toBe(provider);
+      expect(productionProblems(env)).toEqual([]);
+    } else {
+      expect(() => createAiProduct({ env })).toThrow(provider === 'mock' ? 'mock_provider_forbidden' : 'unsupported_provider');
+    }
   });
   it('reports unknown provider cost distinctly and only queries aggregate request metadata', async () => {
     const result = await inspectDatabase({ query: async (sql) => {
