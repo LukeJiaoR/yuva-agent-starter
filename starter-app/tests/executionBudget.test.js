@@ -50,6 +50,17 @@ describe('durable execution budget', () => {
     expect((await summary()).calls[0].budgetResources.outputTokens).toBe(50);
     expect((await summary()).calls[0].metrics.outputTokens.value).toBeNull();
   });
+  it('rejects provider-default output policy before durable usage or provider invocation', async () => {
+    const invoke = vi.fn(async () => ({}));
+    const { run, summary } = await setup({ invoke });
+    await expect(run({ ...input(), options: { outputTokenPolicy: 'provider_default' } }))
+      .rejects.toMatchObject({ code: 'execution_output_policy_unsupported' });
+    expect(invoke).not.toHaveBeenCalled();
+    expect((await summary()).calls).toEqual([]);
+    await run(input());
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect((await summary()).calls[0].budgetResources.outputTokens).toBe(50);
+  });
   it('checks context growth, model fallback, retries and frozen authorization before upstream', async () => {
     const invoke = vi.fn(async () => ({ outcome: 'safety_refusal' }));
     const { run, summary, operation } = await setup({ invoke, overrides: { maxRetries: 0 } });

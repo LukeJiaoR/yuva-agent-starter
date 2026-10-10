@@ -27,6 +27,20 @@ Provider adapters are trusted server-side composition and must implement their
 declared limits; unsupported capabilities fail before reservation. Compatible
 gateways must honor the protocol's limit fields to be eligible for bounded use.
 
+Core 1.5.0 also offers direct OpenAI Responses transports an explicit
+`options.outputTokenPolicy: 'provider_default'` mode. It omits `maxOutputTokens`
+and `max_output_tokens`, ignores `maxOutputTokensDefault`, and rejects any set
+`maxOutputTokens` or `maxOutputTokensCap` (including null/zero) rather than silently
+discarding a bound. Unknown policy values and Anthropic use fail before provider
+invocation. With no policy, all legacy numeric/default behavior is retained.
+This mode is intentionally incompatible with frozen-budget text executions:
+`executionRequest` and `createBudgetedProvider` reject it during preflight,
+before a usage call is created. It does not change reservations, worst-case holds,
+token pricing or the default starter composition. Direct users must supply their
+own cancellation/deadline and abnormal-output controls; provider/model limits
+still apply. Shared retries remain disabled and the 2 MiB decoded-text safety
+limit remains in force, without claiming to bound raw SSE or reasoning metadata.
+
 Optional `maxTotalInputTokens` / `maxTotalOutputTokens` constrain aggregate
 worst-case holds. Every started call retains its requested maximum even when usage
 is missing, cached, failed or subsequently lower. Without aggregate fields,

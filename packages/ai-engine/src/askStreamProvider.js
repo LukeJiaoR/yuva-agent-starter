@@ -13,6 +13,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { normalizeSdkProviderResult } from "./providerUsage.js";
 import { REASONING_EFFORTS } from "./modelConfig.js";
+import { OutputTokenPolicyError, usesProviderDefaultOutputTokens } from "./outputTokenPolicy.js";
 
 const OPENAI_PROVIDER_NAME = "openai";
 const PROVIDER_TEXT_MAX_BYTES = 2 * 1024 * 1024;
@@ -41,6 +42,7 @@ function positiveInteger(value) {
 }
 
 function resolveMaxOutputTokens(options = {}) {
+  if (usesProviderDefaultOutputTokens(options)) return undefined;
   const defaultMaxTokens = positiveInteger(options.maxOutputTokensDefault) || 1024;
   const requestedMaxTokens = positiveInteger(options.maxOutputTokens) || defaultMaxTokens;
   const maxOutputTokensCap = positiveInteger(options.maxOutputTokensCap);
@@ -109,6 +111,7 @@ function unwrapSdkError(error) {
 
 function normalizeSdkError(error, signal) {
   if (error instanceof AskProviderStreamError) return error;
+  if (error instanceof OutputTokenPolicyError) return providerError(error.code, error.message);
   const unwrapped = unwrapSdkError(error);
   if (signal?.aborted || error?.name === "AbortError" || unwrapped?.name === "AbortError") {
     return providerError("provider_aborted", "Provider generation was aborted", { retryable: true });
@@ -162,6 +165,10 @@ function normalizedResult({ provider, requestedModel, sdkResult }) {
 }
 
 function commonCallOptions({ providerConfig, systemPrompt, messages, options, signal }) {
+  const maxOutputTokens = resolveMaxOutputTokens(options);
+  if (maxOutputTokens === undefined && providerConfig.provider !== OPENAI_PROVIDER_NAME) {
+    throw new OutputTokenPolicyError('output_token_policy_unsupported_provider');
+  }
   const responseFormat = options.responseFormat?.type === "json_schema"
     ? options.responseFormat.json_schema
     : null;
@@ -169,7 +176,7 @@ function commonCallOptions({ providerConfig, systemPrompt, messages, options, si
     model: providerConfig.model,
     system: systemPrompt || undefined,
     messages,
-    maxOutputTokens: resolveMaxOutputTokens(options),
+    ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
     maxRetries: 0,
     abortSignal: signal,
     ...(responseFormat?.schema ? {

@@ -20,6 +20,9 @@ export function executionRequest({ taskType, limits, provider, model, input = {}
   requireBudget(capabilities?.taskType === taskType && capabilities.outputLimit === true && capabilities.abort === true,
     'execution_capability_unsupported');
   if (taskType === 'text') {
+    // Frozen quotes require enforceable numeric output holds. Reject before
+    // invoking a metered provider or creating any durable usage entry.
+    requireBudget(input.options?.outputTokenPolicy === undefined, 'execution_output_policy_unsupported');
     requireBudget(positive(limits.maxInputTokens) && positive(limits.maxOutputTokens), 'execution_limits_invalid');
     const inputTokens = textInputEnvelope(input);
     requireBudget(inputTokens <= limits.maxInputTokens, 'execution_input_exceeded');

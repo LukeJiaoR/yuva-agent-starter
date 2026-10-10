@@ -65,6 +65,15 @@ Consumers declare each package they import. The core may import its own files an
 declared dependencies, never a product workspace or product singleton. Tests and
 source maps may refer to source while the production app imports package names.
 
+OpenAI Responses consumers can explicitly set
+`options.outputTokenPolicy: 'provider_default'` to omit a client-requested output
+token cap. The existing `resolveMaxOutputTokens` export returns `undefined` in
+this mode; generation ports omit the SDK field entirely. No new package subpath
+is exposed. The option ignores the legacy default but rejects explicit token/cap
+fields and unsupported providers. It is trusted server configuration, not a
+client-controlled escape from a frozen quote. Existing callers keep their prior
+numeric/default behavior; bounded execution ports reject this opt-in.
+
 ## Distribution and schema
 
 This repository is private. Versioned npm tarballs are distributed through a

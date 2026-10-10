@@ -1,3 +1,5 @@
+import { usesProviderDefaultOutputTokens } from './outputTokenPolicy.js';
+
 export const REASONING_EFFORTS = new Set(["none", "low", "medium", "high", "xhigh", "max"]);
 
 export function resolveOpenAIChatModel(env = process.env) {
@@ -33,6 +35,7 @@ export function assertReasoningEffort(value, label = "reasoningEffort") {
 }
 
 export function resolveMaxOutputTokens(options = {}) {
+  if (usesProviderDefaultOutputTokens(options)) return undefined;
   const defaultMaxTokens = Number.parseInt(options.maxOutputTokensDefault, 10) || 1024;
   const requestedMaxTokens = Number.parseInt(options.maxOutputTokens, 10) || defaultMaxTokens;
   const maxOutputTokensCap = Number.parseInt(options.maxOutputTokensCap, 10);

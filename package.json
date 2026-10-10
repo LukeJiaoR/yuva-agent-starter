@@ -46,7 +46,7 @@
   "dependencies": {
     "dotenv": "^16.6.1",
     "pg": "^8.16.3",
-    "@yuva/billing-core": "1.4.0"
+    "@yuva/billing-core": "1.5.0"
   },
   "devDependencies": {
     "concurrently": "^10.0.0",
