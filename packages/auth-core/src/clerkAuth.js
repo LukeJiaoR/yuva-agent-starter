@@ -1,5 +1,6 @@
 import { verifyToken } from '@clerk/backend';
 import { TokenVerificationErrorReason } from '@clerk/backend/errors';
+import { authenticationError, authInfrastructureError, createRequestAuthMiddleware } from './requestAuth.js';
 
 const INVALID_TOKEN_REASONS = new Set([
   TokenVerificationErrorReason.TokenVerificationFailed,
@@ -50,20 +51,6 @@ function readBearerToken(req) {
   const match = /^Bearer\s+([^\s]+)$/i.exec(value.trim());
   if (!match) return { kind: 'invalid', token: null };
   return { kind: 'present', token: match[1] };
-}
-
-function authenticationError(res, message = 'Not authenticated') {
-  return res.status(401).json({
-    error: message,
-    code: 'authentication_required',
-  });
-}
-
-function authInfrastructureError(res) {
-  return res.status(503).json({
-    error: 'Authentication is temporarily unavailable',
-    code: 'authentication_unavailable',
-  });
 }
 
 function isInvalidClerkTokenError(error) {
@@ -193,11 +180,13 @@ export async function requireClerkAuth(req, res, next, options = {}) {
 }
 
 /**
- * Factory for creating requireAuth middleware with injected database and custom error messages.
+ * Preserve the Clerk defaults while allowing a trusted, request-level verifier.
+ * A custom verifier must also supply its own explicit local-user mapping.
  */
-export function createRequireAuth({
+function requestAuthOptions({
   db,
-  findUser = findMappedClerkUser,
+  findUser,
+  verifyRequest,
   profileRequiredError = 'User profile setup is required',
   profileRequiredCode = 'user_profile_required',
   profileUnavailableError = 'User profile is temporarily unavailable',
@@ -205,62 +194,30 @@ export function createRequireAuth({
   env = process.env,
   tokenVerifier = verifyToken,
 } = {}) {
-  return async function requireAuth(req, res, next) {
-    return requireClerkAuth(req, res, async () => {
-      try {
-        const user = await findUser(req.clerkAuth.userId, db);
-        if (!user) {
-          return res.status(409).json({
-            error: profileRequiredError,
-            code: profileRequiredCode,
-          });
-        }
-        req.user = user;
-        return next();
-      } catch (error) {
-        console.error('User mapping unavailable:', error?.message || error);
-        return res.status(503).json({
-          error: profileUnavailableError,
-          code: profileUnavailableCode,
-        });
-      }
-    }, { env, tokenVerifier });
+  const useClerk = verifyRequest === undefined;
+  if (!useClerk && (typeof verifyRequest !== 'function' || typeof findUser !== 'function')) {
+    throw new TypeError('Custom authentication requires verifyRequest and findUser functions');
+  }
+  return {
+    db,
+    findUser: useClerk && findUser === undefined ? findMappedClerkUser : findUser,
+    verifyRequest: useClerk ? (req) => verifyClerkRequest(req, { env, tokenVerifier }) : verifyRequest,
+    useClerk,
+    profileRequiredError,
+    profileRequiredCode,
+    profileUnavailableError,
+    profileUnavailableCode,
   };
 }
 
-/**
- * Factory for creating optionalAuth middleware with injected database.
- */
-export function createOptionalAuth({
-  db,
-  findUser = findMappedClerkUser,
-  profileUnavailableError = 'User profile is temporarily unavailable',
-  profileUnavailableCode = 'user_profile_unavailable',
-  env = process.env,
-  tokenVerifier = verifyToken,
-} = {}) {
-  return async function optionalAuth(req, res, next) {
-    const auth = await verifyClerkRequest(req, { env, tokenVerifier });
-    if (auth.kind === 'missing') {
-      req.user = null;
-      req.clerkAuth = null;
-      return next();
-    }
-    if (auth.kind === 'invalid') return authenticationError(res);
-    if (auth.kind === 'unavailable') return authInfrastructureError(res);
+/** Create required authentication with a separate, product-owned user mapping. */
+export function createRequireAuth(options = {}) {
+  return createRequestAuthMiddleware({ ...requestAuthOptions(options), optional: false });
+}
 
-    req.clerkAuth = auth;
-    try {
-      req.user = await findUser(auth.userId, db);
-      return next();
-    } catch (error) {
-      console.error('Optional user mapping unavailable:', error?.message || error);
-      return res.status(503).json({
-        error: profileUnavailableError,
-        code: profileUnavailableCode,
-      });
-    }
-  };
+/** Optional authentication permits missing credentials, never invalid credentials. */
+export function createOptionalAuth(options = {}) {
+  return createRequestAuthMiddleware({ ...requestAuthOptions(options), optional: true });
 }
 
 /**
