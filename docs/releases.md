@@ -15,6 +15,12 @@ pins package bytes; `.core-release.json` pins the manifest SHA-256 and source SH
 Digests detect changes relative to a trusted pin, not independent authorship:
 review the authenticated source/tag and changed manifest in every upgrade PR.
 
+## Core 1.5.0 explicit provider-default output policy
+
+[Core 1.5.0](releases/1.5.0.md) adds an opt-in OpenAI Responses output-token
+policy. Existing numeric/default behavior and frozen execution budgets remain
+unchanged. Products adopt the new policy through their own reviewed upgrades.
+
 ## Core 1.4.0 explicit free execution
 
 [Core 1.4.0](releases/1.4.0.md) adds an explicit, opt-in free usage lifecycle.
