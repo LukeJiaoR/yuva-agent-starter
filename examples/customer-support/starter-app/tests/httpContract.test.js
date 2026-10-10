@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { beginAdminAction, finishAdminAction } from '@yuva/admin-core';
 import { provisionExternalIdentity } from '@yuva/auth-core';
 import { createServer } from '../server/index.js';
+import { prepareTestDatabase } from './helpers/database.js';
 import { reserveFeatureCredits, settleFeatureCredits } from '@yuva/billing-core';
 
 const { Pool } = pg;
@@ -38,6 +39,7 @@ describe('out-of-box HTTP and database contract', () => {
       return;
     }
 
+    await prepareTestDatabase(adminPool);
     await adminPool.query(`CREATE SCHEMA ${schema}`);
     const databaseUrl = `${baseDatabaseUrl}${baseDatabaseUrl.includes('?') ? '&' : '?'}options=-csearch_path%3D${schema}`;
     const setup = spawnSync(process.execPath, ['scripts/database.mjs', 'setup'], {
