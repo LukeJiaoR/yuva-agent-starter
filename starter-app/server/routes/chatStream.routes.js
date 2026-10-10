@@ -22,6 +22,7 @@ import {
 } from '@yuva/billing-core';
 import { DomainPrompts } from '../domain/prompts.js';
 import { createAiProduct, publicQuote } from '../domain/aiProduct.js';
+import { chatConversationId } from '../domain/chatResultPersistence.js';
 import { createUsageStore } from '../stores/usageStore.js';
 import { toPublicError } from '../http/errors.js';
 
@@ -59,7 +60,10 @@ export function createChatStreamRoutes({
     if (['settled', 'no_charge'].includes(status) && operation.fulfillment?.status === 'ready') {
       return { isExisting: true, replayed: true, request: { status: 'settled', financialStatus: status,
         pricing: publicQuote(operation.quote), creditsUsed: operation.decision?.credits ?? 0,
-        client_request_id: operation.clientRequestId, assistant_text: operation.fulfillment.artifacts.find((a) => a.type === 'text')?.text || '' } };
+        client_request_id: operation.clientRequestId,
+        conversation_id: operation.fulfillment.starterChatProjection?.conversationId,
+        assistant_text: operation.fulfillment.starterChatProjection?.text
+          ?? operation.fulfillment.artifacts.find((a) => a.type === 'text')?.text ?? '' } };
     }
     if (status === 'released') return { rejected: true, status: 409, code: 'request_released', error: 'Request was released' };
     return { isExisting: true, statusCode: 202, status: 202,
@@ -103,13 +107,20 @@ export function createChatStreamRoutes({
   const domainPort = {
     async prepare({ request, user, db: activeDb }) {
       const input = normalizeRequest(request);
-      const conversationId = input.conversationId || input.conversation_id || crypto.randomUUID();
       const clientRequestId = input.requestId || input.clientRequestId || input.request_id || crypto.randomUUID();
+      const conversationId = chatConversationId({ accountId: user.id, clientRequestId,
+        conversationId: input.conversationId || input.conversation_id });
       const question = input.question || 'Hello!';
 
       // Load conversation history from database with strict user ownership enforcement
       let history = [];
       try {
+        const ownership = await activeDb.query(`SELECT EXISTS(SELECT 1 FROM conversations
+          WHERE id=$1 AND user_id<>$2) AS forbidden`, [conversationId, user.id]);
+        if (ownership.rows[0]?.forbidden) {
+          throw new AgentRuntimeError('invalid_request', 'chat_conversation_forbidden',
+            'Conversation is not available for this account.', { status: 403 });
+        }
         const histRes = await activeDb.query(
           `SELECT m.role, m.content
              FROM messages m
@@ -121,7 +132,8 @@ export function createChatStreamRoutes({
         );
         // Reverse recent 20 messages into chronological order
         history = (histRes.rows || []).slice().reverse();
-      } catch {
+      } catch (error) {
+        if (error instanceof AgentRuntimeError) throw error;
         throw new AgentRuntimeError('persistence_failure', 'conversation_history_unavailable',
           'Conversation history is temporarily unavailable. Please try again.',
           { status: 503, retryable: true });
@@ -138,6 +150,7 @@ export function createChatStreamRoutes({
           clientRequestId,
           operationInput: identity(input, user.id, clientRequestId),
           conversationId,
+          domainKey: adapter.domainKey,
           question,
           factsSnapshot: snapshot,
           domainContext,
@@ -389,36 +402,11 @@ export function createChatStreamRoutes({
     },
 
     async settle(context) {
-      const { request, user, db: activeDb, providerResult, output } = context;
-      const textToSave = output;
+      const { providerResult } = context;
       const billableTokens = providerResult?.usage?.source === 'provider'
         ? providerResult.usage.totalTokens ?? null : null;
       const settlement = await operationBilling.settle(context);
       if (!['settled', 'no_charge'].includes(settlement.status)) return settlement;
-
-      // Persist conversation & messages with strict tenant ownership
-      if (request?.conversationId) {
-        await activeDb.query(
-          `INSERT INTO conversations (id, user_id, domain_key, updated_at)
-           VALUES ($1, $2, $3, NOW())
-           ON CONFLICT (id) DO UPDATE
-              SET updated_at = NOW()
-            WHERE conversations.user_id = $2`,
-          [request.conversationId, user.id, adapter.domainKey],
-        ).catch(() => {});
-
-        await activeDb.query(
-          `INSERT INTO messages (conversation_id, role, content, created_at)
-           SELECT c.id, 'user', $2, NOW()
-             FROM conversations c
-            WHERE c.id = $1 AND c.user_id = $4
-            UNION ALL
-           SELECT c.id, 'assistant', $3, NOW()
-             FROM conversations c
-            WHERE c.id = $1 AND c.user_id = $4`,
-          [request.conversationId, request.question, textToSave, user.id],
-        ).catch(() => {});
-      }
 
       return {
         status: settlement.status,

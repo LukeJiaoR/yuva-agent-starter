@@ -10,6 +10,7 @@ afterEach(() => vi.restoreAllMocks());
 
 function setup({ history = [], failHistory = false, existing = null } = {}) {
   const db = { query: vi.fn(async (sql) => {
+    if (sql.includes('AS forbidden')) return { rows: [{ forbidden: false }] };
     if (sql.includes('FROM messages')) {
       if (failHistory) throw new Error(rawFailure);
       return { rows: history };
