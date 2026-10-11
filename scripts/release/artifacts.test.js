@@ -34,7 +34,11 @@ describe('private release integrity and safe consumer upgrades', () => {
   });
   it('installs all packages outside the workspace and enforces public exports', async () => {
     const isolated = path.join(temp, 'isolated'); await fs.mkdir(isolated);
-    await writeJson(path.join(isolated, 'package.json'), { private: true, type: 'module', dependencies: Object.fromEntries(manifest.packages.map((p) => [p.name, p.version])) });
+    const appManifest = await json(path.join(process.cwd(), 'starter-app/package.json'));
+    const applicationDependencies = Object.fromEntries(Object.entries(appManifest.dependencies)
+      .filter(([name]) => !name.startsWith('@yuva/') && name !== '@clerk/backend'));
+    await writeJson(path.join(isolated, 'package.json'), { private: true, type: 'module',
+      dependencies: { ...applicationDependencies, ...Object.fromEntries(manifest.packages.map((p) => [p.name, p.version])) } });
     await installBundle({ root: isolated, bundle, packageDirs: ['.'], apply: true, allowDevelopment: true });
     run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'], isolated);
     const source = manifest.packages.map((p) => `await import('${p.name}');`).join('\n') + `
@@ -43,6 +47,56 @@ describe('private release integrity and safe consumer upgrades', () => {
     `;
     run(process.execPath, ['--input-type=module', '-e', source], isolated);
     const lock = await json(path.join(isolated, 'package-lock.json'));
+    // Optional peers are actually absent, not merely avoided by the source import.
+    expect(Object.keys(lock.packages).some((name) => name.endsWith('node_modules/@clerk/backend'))).toBe(false);
+    await expect(fs.access(path.join(isolated, 'node_modules/@clerk/backend'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await fs.cp(path.join(process.cwd(), 'starter-app/server'), path.join(isolated, 'server'), { recursive: true });
+    const composition = `
+      import assert from 'node:assert/strict';
+      import { createServer } from './server/index.js';
+      import { createRequireAuth, verifyClerkRequest } from '@yuva/auth-core';
+      console.error = () => {};
+      const db = { query() { throw new Error('Unexpected SQL in identity fixture'); } };
+      const auth = {
+        verifyRequest: async () => ({ kind: 'authenticated', userId: 'verified-subject' }),
+        findUser: async subject => { assert.equal(subject, 'verified-subject'); return { id: 'local-user' }; },
+      };
+      const config = { env: { NODE_ENV: 'test', AI_PROVIDER: 'mock', ALLOW_DEV_GUEST: 'true' } };
+      const app = createServer({ db, config, auth });
+      app.get('/identity-fixture', (req, res) => res.json({ id: req.user.id, clerk: req.clerkAuth }));
+      const server = app.listen(0, '127.0.0.1');
+      await new Promise(resolve => server.once('listening', resolve));
+      try {
+        const response = await fetch('http://127.0.0.1:' + server.address().port + '/identity-fixture');
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), { id: 'local-user', clerk: null });
+      } finally {
+        await new Promise(resolve => { server.close(resolve); server.closeAllConnections(); });
+      }
+      const env = { NODE_ENV: 'production', CLERK_JWT_KEY: 'fixture-key',
+        CLERK_AUTHORIZED_PARTIES: 'https://auth.example.test' };
+      const req = { headers: { authorization: 'Bearer fixture-token' } };
+      assert.deepEqual(await verifyClerkRequest(req, { env }), { kind: 'unavailable', token: null });
+      let status, body, passed = false;
+      const res = { status(value) { status = value; return this; }, json(value) { body = value; } };
+      await createRequireAuth({ env, findUser: auth.findUser })(req, res, () => { passed = true; });
+      assert.equal(status, 503);
+      assert.equal(body.code, 'authentication_unavailable');
+      assert.equal(passed, false);
+      const unavailable = createServer({ db, config: { env: { ...config.env, ...env, NODE_ENV: 'test' } } });
+      const unavailableServer = unavailable.listen(0, '127.0.0.1');
+      await new Promise(resolve => unavailableServer.once('listening', resolve));
+      try {
+        const response = await fetch('http://127.0.0.1:' + unavailableServer.address().port + '/api/pricing',
+          { headers: req.headers });
+        assert.equal(response.status, 503);
+        assert.equal((await response.json()).code, 'authentication_unavailable');
+      } finally {
+        await new Promise(resolve => { unavailableServer.close(resolve); unavailableServer.closeAllConnections(); });
+      }
+    `;
+    await fs.writeFile(path.join(isolated, 'auth-composition.mjs'), composition);
+    run(process.execPath, ['auth-composition.mjs'], isolated);
     for (const component of manifest.packages) {
       expect(lock.packages[`node_modules/${component.name}`].integrity).toBe(component.integrity);
       expect(lock.packages[`node_modules/${component.name}`].engines.node).toBe('>=24 <25');

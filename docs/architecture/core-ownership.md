@@ -43,8 +43,11 @@ isolated dependencies. Product regression is a separate migration gate.
 
 The source-level `verifyRequest` seam and its explicit `findUser` mapping are
 documented in [Authentication adapters](authentication.md). The legacy Clerk
-exports and `tokenVerifier` option remain available. This does not remove the
-Clerk SDK dependency or publish an updated consumer artifact.
+exports and `tokenVerifier` option remain available. The current-source auth package
+uses an optional Clerk SDK peer, loaded only for Clerk verification; the default
+starter application owns an explicit SDK dependency. Consumers adopt this boundary
+through a future artifact and their own dependency/lockfile update. This source
+work does not publish an updated consumer artifact.
 
 Ports are trusted server composition, never arbitrary client-selected modules.
 Each adapter validates the capabilities and configuration it claims. Missing
