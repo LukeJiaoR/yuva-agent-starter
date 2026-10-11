@@ -36,6 +36,11 @@ describe('create-web-app generator', () => {
     expect(manifest.workspaces).toEqual(['starter-app', 'starter-web']);
     expect(metadata.source.commit).toMatch(/^[a-f0-9]{40}$/u);
     expect(metadata.core.packages).toHaveLength(5);
+    expect(metadata).toMatchObject({ development: true, buildIntent: 'development' });
+    expect(manifest.scripts['verify:boundaries']).toBe('node scripts/release/verify-consumer.mjs --development');
+    expect(manifest.scripts['core:verify']).toBe('node scripts/release/verify-consumer.mjs');
+    expect(result.stdout).toContain('Local development bundle');
+    expect(result.stdout).toContain('not a published release');
     await expect(fs.access(path.join(target, 'packages'))).rejects.toMatchObject({ code: 'ENOENT' });
     expect(lock.name).toBe('legal-lens');
     expect(metadata).toMatchObject({
@@ -71,5 +76,16 @@ describe('create-web-app generator', () => {
     expect(productionWebEnv).toBe(webEnv);
     await expect(fs.access(path.join(target, '.git'))).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(fs.access(path.join(target, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('keeps the generated local integrity check usable without weakening strict verification', () => {
+    const verify = args => spawnSync(process.execPath, args, { cwd: target, encoding: 'utf8' });
+    const local = verify(['scripts/verify-boundaries.mjs']);
+    expect(local.status, local.stderr).toBe(0);
+    expect(local.stdout).toContain('build intent: development');
+    expect(local.stdout).toContain('Publication is not verified');
+    const strict = verify(['scripts/release/verify-consumer.mjs']);
+    expect(strict.status).not.toBe(0);
+    expect(strict.stderr).toContain('Unsupported/unreleased');
   });
 });
