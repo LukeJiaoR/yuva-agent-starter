@@ -11,6 +11,8 @@ import { createAnalyzeRoutes } from './routes/analyze.routes.js';
 import { createChatStreamRoutes } from './routes/chatStream.routes.js';
 import { createOptionalAuth, hardenJsonResponse } from '@yuva/auth-core';
 import { sendPublicError } from './http/errors.js';
+import { authMode } from './auth/config.js';
+import { createSelfHostedAuth } from './auth/selfHosted.js';
 
 dotenv.config();
 
@@ -23,11 +25,17 @@ export function createServer({
   usageStore,
   aiProduct,
   auth,
+  sendAuthMail,
   config = {},
 } = {}) {
   const env = config.env || process.env;
   const product = aiProduct ?? createAiProduct({ env, configuration: config.pricing, inputVersion: config.inputVersion });
   const app = express();
+  const mode = authMode(env);
+  if (mode === 'self-hosted' && auth) throw new Error('Self-hosted mode cannot be combined with a custom auth adapter');
+  const activeDb = db || createDatabasePool({ databaseUrl: env.DATABASE_URL });
+  const selfHosted = mode === 'self-hosted' ? createSelfHostedAuth({ db: activeDb, env, sendMail: sendAuthMail }) : null;
+  app.locals.selfHostedAuth = selfHosted;
 
   const configuredOrigins = String(env.CORS_ORIGIN || env.FRONTEND_URL || '')
     .split(',')
@@ -52,6 +60,12 @@ export function createServer({
       return callback(error);
     },
   }));
+  if (selfHosted) {
+    app.use(selfHosted.csrf);
+    app.use('/api/auth', selfHosted.router);
+  } else {
+    app.get('/api/auth/config', (req, res) => res.json({ mode, enabled: false, capture: false }));
+  }
   app.use(express.json({ limit: env.JSON_BODY_LIMIT || '256kb' }));
 
   // Response Hardening Middleware (prevents token leakage & sets security headers)
@@ -60,20 +74,19 @@ export function createServer({
     next();
   });
 
-  const activeDb = db || createDatabasePool({ databaseUrl: env.DATABASE_URL });
   const activeAdapter = adapter || new DomainKnowledgeAdapter(config.domainKey || env.DOMAIN_KEY || 'vertical-agent-saas');
 
   // Optional Authentication Middleware (@yuva/auth-core)
   const optionalAuth = createOptionalAuth({
     db: activeDb,
     env,
-    verifyRequest: auth?.verifyRequest,
-    findUser: auth?.findUser,
+    verifyRequest: selfHosted?.verifyRequest || auth?.verifyRequest,
+    findUser: selfHosted?.findUser || auth?.findUser,
   });
   app.use(optionalAuth);
 
   // Mount API routes
-  app.use(createHealthRoutes({ adapter: activeAdapter, db: activeDb }));
+  app.use(createHealthRoutes({ adapter: activeAdapter, db: activeDb, authHealth: selfHosted?.readiness }));
   app.use(createAnalyzeRoutes({ adapter: activeAdapter }));
   app.get('/api/pricing', (req, res) => res.json(product.publicPricing));
   app.use(createChatStreamRoutes({
@@ -89,7 +102,7 @@ export function createServer({
 
   // Global error handler (Fail-Closed)
   app.use((err, req, res, next) => {
-    console.error('[Server Error]', err);
+    console.error('[Server Error]', { code: err?.code || 'internal_error' });
     if (!res.headersSent) {
       sendPublicError(res, err);
     }
@@ -102,7 +115,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
   && process.env.NODE_ENV !== 'test' && !process.env.TEST_MODE) {
   const port = process.env.PORT || 3000;
   const app = createServer();
-  app.listen(port, () => {
+  const host = app.locals.selfHostedAuth?.config.mailMode === 'capture' ? '127.0.0.1' : undefined;
+  app.listen(port, host, () => {
     console.log(`[Starter App] Server running at http://localhost:${port}`);
   });
 }

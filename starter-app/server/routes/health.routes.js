@@ -1,6 +1,6 @@
 import express from 'express';
 
-export function createHealthRoutes({ adapter, db } = {}) {
+export function createHealthRoutes({ adapter, db, authHealth } = {}) {
   const router = express.Router();
 
   router.get('/health', (req, res) => {
@@ -14,6 +14,8 @@ export function createHealthRoutes({ adapter, db } = {}) {
   router.get('/ready', async (req, res) => {
     try {
       await db.query('SELECT 1');
+      const authentication = authHealth ? await authHealth() : 'ready';
+      if (authentication !== 'ready') return res.status(503).json({ status: 'not_ready', database: 'connected', authentication });
       return res.json({
         status: 'ready',
         database: 'connected',

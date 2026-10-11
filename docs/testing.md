@@ -21,7 +21,7 @@ npm run ops:verify
 ```
 
 `test:acceptance` invokes the existing `npm test` (including boundary validation),
-reads Vitest's structured report and requires all 13 acceptance suites to contain
+reads Vitest's structured report and requires all 14 acceptance suites to contain
 passed assertions. Any failed or skipped test, absent suite, missing report or
 missing explicit database URL fails the command. CI uses this command on Node 24 with its PostgreSQL 16 service and also builds
 both portable containers.
@@ -150,3 +150,5 @@ Consumers can inject their own operation and usage stores through `createServer`
 a completion remains unknown after restart. No output-length token estimate is
 substituted for provider measurements. Costs use integer strings and decimal
 scale, grouped by currency; cached/reasoning metrics remain subsets.
+
+Self-hosted authentication adds `selfHostedAuth.test.js` to the required real-PostgreSQL gate; see [auth validation](self-hosted-auth.md#http-boundary-and-validation).

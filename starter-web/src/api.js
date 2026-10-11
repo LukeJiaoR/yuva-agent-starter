@@ -16,16 +16,17 @@ async function readJsonResponse(response) {
 }
 
 export async function checkReadiness(signal) {
-  const response = await fetch(apiUrl('/ready'), { signal });
+  const response = await fetch(apiUrl('/ready'), { signal, credentials: 'include' });
   return readJsonResponse(response);
 }
 export async function readPricing(signal) {
-  return readJsonResponse(await fetch(apiUrl('/api/pricing'), { signal }));
+  return readJsonResponse(await fetch(apiUrl('/api/pricing'), { signal, credentials: 'include' }));
 }
 
 export async function analyzeInput(input, signal) {
   const response = await fetch(apiUrl('/api/analyze'), {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ input }),
     signal,
@@ -53,6 +54,7 @@ function parseEventBlock(block) {
 export async function streamChat(payload, { onEvent, signal } = {}) {
   const response = await fetch(apiUrl('/api/chat/stream'), {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
     signal,

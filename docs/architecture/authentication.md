@@ -138,3 +138,9 @@ product-owned application server, and exercises custom authentication plus
 missing-SDK fail-closed responses over real loopback HTTP. This is local artifact
 validation, not a release or a live identity-provider test. Installed-SDK tests
 separately preserve reason-code classification and signature-only JWKS fallback.
+
+## Application-owned self-hosted adapter
+
+`AUTH_MODE=self-hosted` now composes these existing ports with Better Auth in
+`starter-app/server/auth`. The auth-core package remains vendor-neutral. See
+[the setup, ownership, session/CSRF, migration and operational contract](../self-hosted-auth.md).

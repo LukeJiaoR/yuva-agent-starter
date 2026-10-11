@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   ArrowRight,
@@ -11,7 +11,15 @@ import {
   WarningCircle,
 } from '@phosphor-icons/react';
 import { analyzeInput, checkReadiness, readPricing, streamChat } from './api.js';
+import { AuthProvider } from './auth/AuthProvider.jsx';
+import { AccountControl, AuthNotice } from './auth/components.jsx';
+import { consumeAuthFragment, workspaceIdentity } from './auth/state.js';
+import { useAuth } from './auth/useAuth.js';
 import './styles.css';
+
+// Consume email-link fragments before React mounts or any API work begins.
+// AuthProvider scrubs this in-memory object when the link is used or dismissed.
+const initialAuthLink = consumeAuthFragment(window);
 
 const appName = import.meta.env.VITE_APP_NAME || 'Northstar Agent';
 const appDescription = import.meta.env.VITE_APP_DESCRIPTION
@@ -33,6 +41,13 @@ function Status({ kind, children }) {
   );
 }
 
+export function AccountWorkspace() {
+  const auth = useAuth();
+  // A changed identity gets fresh inputs/results/pricing and a fresh operation
+  // namespace. Never reuse another user's draft, result, or pending retry ID.
+  return <App key={workspaceIdentity(auth)} />;
+}
+
 function App() {
   const [theme, setTheme] = useState(initialTheme);
   const [readiness, setReadiness] = useState({ state: 'checking', label: 'Checking API' });
@@ -44,11 +59,22 @@ function App() {
   const [error, setError] = useState('');
   const [stage, setStage] = useState('idle');
   const activeRequest = useRef(null);
+  const alive = useRef(true);
   const requestSnapshot = useRef(null);
   const [pricing, setPricing] = useState(null);
   const [quote, setQuote] = useState(null);
   const [charge, setCharge] = useState(null);
   const [financialStatus, setFinancialStatus] = useState(null);
+
+  useLayoutEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      activeRequest.current?.abort();
+      requestSnapshot.current = null;
+    };
+  }, []);
+  const ownsRequest = (controller) => alive.current && activeRequest.current === controller && !controller.signal.aborted;
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -59,9 +85,10 @@ function App() {
   useEffect(() => {
     const controller = new AbortController();
     checkReadiness(controller.signal)
-      .then(() => setReadiness({ state: 'ready', label: 'API ready' }))
-      .catch(() => setReadiness({ state: 'error', label: 'API unavailable' }));
-    readPricing(controller.signal).then(setPricing).catch(() => setPricing(null));
+      .then(() => { if (alive.current && !controller.signal.aborted) setReadiness({ state: 'ready', label: 'API ready' }); })
+      .catch(() => { if (alive.current && !controller.signal.aborted) setReadiness({ state: 'error', label: 'API unavailable' }); });
+    readPricing(controller.signal).then((value) => { if (alive.current && !controller.signal.aborted) setPricing(value); })
+      .catch(() => { if (alive.current && !controller.signal.aborted) setPricing(null); });
     return () => controller.abort();
   }, []);
 
@@ -74,6 +101,7 @@ function App() {
   }, [parameters]);
 
   async function runAnalysis() {
+    if (!alive.current) return null;
     if (requestSnapshot.current) return analysis;
     if (parsedParameters.error) {
       setError(parsedParameters.error);
@@ -87,10 +115,12 @@ function App() {
     setStage('analyzing');
     try {
       const result = await analyzeInput({ subject, parameters: parsedParameters.value }, controller.signal);
+      if (!ownsRequest(controller)) return null;
       setAnalysis(result);
       setStage('ready');
       return result;
     } catch (requestError) {
+      if (!ownsRequest(controller)) return null;
       if (requestError.name !== 'AbortError') setError(requestError.message);
       setStage('idle');
       return null;
@@ -99,7 +129,7 @@ function App() {
 
   async function askAgent() {
     const activeAnalysis = requestSnapshot.current ? analysis : analysis || await runAnalysis();
-    if (!activeAnalysis) return;
+    if (!alive.current || !activeAnalysis) return;
     const controller = new AbortController();
     activeRequest.current?.abort();
     activeRequest.current = controller;
@@ -115,6 +145,7 @@ function App() {
       const response = await streamChat(requestSnapshot.current, {
         signal: controller.signal,
         onEvent(event) {
+          if (!ownsRequest(controller)) return;
           const payload = event.data?.data || event.data || {};
           if (event.type === 'start' && payload.pricing) setQuote(payload.pricing);
           if (event.type === 'pending') { setStage('pending'); setFinancialStatus(payload.status); }
@@ -132,12 +163,13 @@ function App() {
           }
         },
       });
+      if (!ownsRequest(controller)) return;
       if (!terminal) {
         setStage('pending');
         if (response.status) setFinancialStatus(response.status);
       }
     } catch (requestError) {
-      if (terminal) return;
+      if (!ownsRequest(controller) || terminal) return;
       if (requestError.name !== 'AbortError') setError(requestError.message);
       if ([400,401,402,403,422].includes(requestError.status)) {
         requestSnapshot.current = null; setStage('ready');
@@ -156,6 +188,7 @@ function App() {
         </a>
         <div className="topbar-actions">
           <span className={`api-state api-${readiness.state}`}>{readiness.label}</span>
+          <AccountControl />
           <button
             className="icon-button"
             type="button"
@@ -168,6 +201,7 @@ function App() {
       </header>
 
       <main className="workspace">
+        <AuthNotice />
         <section className="intro" aria-labelledby="page-title">
           <div>
             <p className="eyebrow">Grounded agent workspace</p>
@@ -279,6 +313,6 @@ function App() {
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <App />
+    <AuthProvider initialLink={initialAuthLink}><AccountWorkspace /></AuthProvider>
   </React.StrictMode>,
 );
