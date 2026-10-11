@@ -5,8 +5,10 @@ Owner: repository maintainers. Source and port ownership: [ADR](architecture/cor
 All five packages use coordinated semver. Patch = compatible fix, minor = additive
 interface, major = incompatible contract/schema requirement. No package install
 runs SQL. Latest stable plus the prior minor remain supported until consumers have
-upgrade evidence; a security fix can require an expedited upgrade. Only manifests
-with `development=false` are deployable release artifacts.
+upgrade evidence; a security fix can require an expedited upgrade. A clean tree,
+`development=false`, or a successful checksum check does not prove publication or
+deployment readiness. Review the authenticated release/tag, compatibility, and
+consumer acceptance separately.
 
 This repository is public. Core bundles are available from its GitHub Releases.
 The release/upgrade scripts use `gh`; configure that tool separately if it requests
@@ -74,6 +76,15 @@ ancestry in main. Increase component versions and add release notes before the
 next release. Existing asset names/hashes must never be overwritten. Downloaded
 consumer pins still detect any out-of-band replacement.
 
+`release:pack` records `buildIntent: release-candidate` for clean source; packing
+does not publish it. `--development` explicitly records development intent even
+for a clean tree. `--allow-dirty` separately permits uncommitted source, which is
+always marked development. These labels describe local build intent, not trust
+or a safety certification. Publication does not rewrite the candidate's bytes or
+metadata; the authenticated release and tag provide the separate publication
+evidence. Older manifests without `buildIntent` remain supported with unknown
+build intent; no publication status is inferred from their version number.
+
 ## Create a product
 
 ```sh
@@ -81,9 +92,17 @@ gh release download core-v1.1.0 --repo LukeJiaoR/yuva-agent-starter --dir /tmp/y
 npm run create -- support-agent --domain 'Customer support' --bundle /tmp/yuva-core-1.1.0
 ```
 
-Without `--bundle`, the generator packs the clean checked-out source. Uncommitted
-source requires explicit `--development`; such output cannot pass production
-artifact verification. The generated product contains no editable core packages.
+Without `--bundle`, the generator packs the checked-out source as a **local
+development bundle**, even when the tree is clean. Uncommitted source still
+requires explicit `--development`. The generated `npm test` / `npm run check`
+path explicitly allows development integrity verification, prints the limitation,
+and remains usable locally. `npm run core:verify` rejects development bundles by
+default; use `npm run core:verify -- --development` only for an intentional local
+integrity check. No verifier here certifies that a candidate or legacy bundle has
+been published or is deployable. `--bundle` preserves the supplied manifest and
+requires `--development` when that manifest is a development bundle.
+
+The generated product contains no editable core packages.
 It owns domain/UI and copied setup scripts; those setup scripts are not silently
 overwritten by package upgrades. Source commit, starter version and component
 versions/hashes are in `.starter.json`; the current core pin is `.core-release.json`.

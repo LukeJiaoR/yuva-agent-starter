@@ -1,11 +1,16 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { json, verifyBundle, digest } from './artifacts.mjs';
-const root = path.resolve(process.argv[2] || '.');
+const args = process.argv.slice(2);
+const positional = args.filter(arg => arg !== '--development');
+if (positional.length > 1 || positional.some(arg => arg.startsWith('--'))) {
+  throw new Error('Usage: node scripts/release/verify-consumer.mjs [directory] [--development]');
+}
+const root = path.resolve(positional[0] || '.');
 const pin = await json(path.join(root, '.core-release.json'));
 const directory = path.resolve(root, path.dirname(pin.manifest));
 if (!directory.startsWith(root + path.sep)) throw new Error('Manifest escapes consumer');
-const manifest = await verifyBundle(directory);
+const manifest = await verifyBundle(directory, { allowDevelopment: args.includes('--development') });
 if (digest(await fs.readFile(path.join(root, pin.manifest)), 'sha256') !== pin.manifestIntegrity || pin.sourceCommit !== manifest.sourceCommit || pin.version !== manifest.version) throw new Error('Pinned release identity mismatch');
 for (const packageDir of pin.packageDirs) {
   const dir = path.resolve(root, packageDir);
@@ -25,4 +30,5 @@ for (const packageDir of pin.packageDirs) {
     if (installed?.version !== component.version || installed?.integrity !== component.integrity || installed?.link) throw new Error(`Lockfile core integrity mismatch: ${component.name}`);
   }
 }
-console.log(`Verified ${manifest.tag} at ${manifest.sourceCommit}`);
+console.log(`Verified bundle integrity for ${manifest.tag} at ${manifest.sourceCommit}; build intent: ${manifest.buildIntent || 'legacy/unknown'}.`);
+console.log('Publication is not verified by this offline check; integrity and build intent are not deployment approval.');

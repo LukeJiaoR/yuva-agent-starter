@@ -20,8 +20,18 @@ npm run create -- customer-support-agent \
 | `--domain-key <key>` | Lowercase key stored in API configuration |
 | `--description <text>` | Web app description |
 | `--install` | Run `npm ci` after copying |
+| `--bundle <directory>` | Use an existing verified bundle without relabeling it |
+| `--development` | Permit dirty source or an explicitly supplied development bundle |
 
 Use a dedicated database for the generated product, and avoid running its Compose database on a host port already used by the starter. The destination must be absent or empty. The generator refuses to write inside the starter source tree and never copies `.git`, dependency directories, local secrets, builds, or coverage output.
+
+Without `--bundle`, generation makes a local development bundle from the current
+source, including from a clean commit. It is not the published release with the
+same package version. Generated `npm test` / `npm run check` explicitly allow
+development integrity checks and print that limitation. `npm run core:verify`
+remains strict; for local evaluation use `npm run core:verify -- --development`.
+A checksum pass checks consistency only, not publication, safety or deployment
+approval. See [release provenance and adoption](releases.md) before deployment.
 
 ## Generated configuration
 

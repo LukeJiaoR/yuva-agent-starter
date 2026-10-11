@@ -64,7 +64,7 @@ async function usageAdapterPlan(root, manifest) {
   };
 }
 
-export async function packCore(root, output, { allowDirty = false } = {}) {
+export async function packCore(root, output, { allowDirty = false, development = false } = {}) {
   const dirty = run('git', ['status', '--porcelain', '--untracked-files=normal'], root);
   if (dirty && !allowDirty) throw new Error('Release requires a clean committed tree');
   const sourceCommit = run('git', ['rev-parse', 'HEAD'], root);
@@ -94,8 +94,12 @@ export async function packCore(root, output, { allowDirty = false } = {}) {
     { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] }), 'sha256'); } catch { /* Unknown source stays unknown. */ }
   const starterUsageAdapter = currentAdapterIntegrity && currentAdapterIntegrity === committedAdapterIntegrity
     ? { formatVersion: 1, path: USAGE_ADAPTER_PATH, sourceCommit, integrity: currentAdapterIntegrity } : null;
+  // Build intent is independent of tree cleanliness. Neither value proves that a
+  // bundle has been published, reviewed or approved for deployment.
+  const isDevelopment = development || Boolean(dirty);
   const manifest = { formatVersion: 1, repository: REPOSITORY, version, tag: `core-v${version}`, sourceCommit,
-    development: Boolean(dirty), compatibility: { node: [24], postgres: [16], ledger: 'existing-credit-ledger-v1', starterMigrations, automaticMigrations: false },
+    development: isDevelopment, buildIntent: isDevelopment ? 'development' : 'release-candidate',
+    compatibility: { node: [24], postgres: [16], ledger: 'existing-credit-ledger-v1', starterMigrations, automaticMigrations: false },
     testedDependencies, packages, ...(starterUsageAdapter ? { starterUsageAdapter } : {}) };
   await writeJson(path.join(output, 'manifest.json'), manifest);
   await fs.writeFile(path.join(output, 'manifest.sha256'), digest(await fs.readFile(path.join(output, 'manifest.json')), 'sha256') + '\n');
@@ -106,6 +110,10 @@ export async function verifyBundle(directory, { allowDevelopment = false } = {})
   if (manifest.formatVersion !== 1 || manifest.repository !== REPOSITORY || !/^\d+\.\d+\.\d+$/u.test(manifest.version)
     || manifest.tag !== `core-v${manifest.version}` || !/^[a-f0-9]{40}$/u.test(manifest.sourceCommit)
     || (manifest.development && !allowDevelopment)) throw new Error('Unsupported/unreleased core manifest');
+  if (manifest.buildIntent !== undefined && (typeof manifest.development !== 'boolean'
+    || manifest.buildIntent !== (manifest.development ? 'development' : 'release-candidate'))) {
+    throw new Error('Invalid bundle build intent');
+  }
   if (manifest.starterUsageAdapter !== undefined && (!validUsageAdapter(manifest.starterUsageAdapter)
     || manifest.starterUsageAdapter.sourceCommit !== manifest.sourceCommit)) throw new Error('Invalid adapter provenance');
   const bytes = await fs.readFile(path.join(directory, 'manifest.json'));

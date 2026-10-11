@@ -22,7 +22,7 @@ Options:
   --target <directory>         Output path, defaults to a sibling directory
   --install                    Run npm ci in the generated project
   --bundle <directory>         Use a verified release bundle
-  --development                Allow an unreleased development bundle
+  --development                Allow dirty source or an explicit development bundle
   --help                       Show this help
 
 Example:
@@ -103,7 +103,8 @@ async function writeGeneratedConfig(target, options, bundle, release) {
   rootPackage.name = appSlug;
   rootPackage.workspaces = ['starter-app', 'starter-web'];
   for (const name of ['create', 'release:pack', 'test:packages', 'smoke:consumer']) delete rootPackage.scripts[name];
-  rootPackage.scripts['verify:boundaries'] = 'node scripts/release/verify-consumer.mjs';
+  const verification = 'node scripts/release/verify-consumer.mjs';
+  rootPackage.scripts['verify:boundaries'] = verification + (release.development ? ' --development' : '');
   rootPackage.scripts.test = 'npm run verify:boundaries && vitest run';
   await fs.writeFile(rootPackagePath, `${JSON.stringify(rootPackage, null, 2)}\n`);
 
@@ -132,9 +133,11 @@ async function writeGeneratedConfig(target, options, bundle, release) {
     source: { repository: release.repository, commit: run('git', ['rev-parse', 'HEAD'], sourceRoot), starterVersion: rootPackage.version },
     core: { version: release.version, tag: release.tag, sourceCommit: release.sourceCommit, packages: release.packages.map(({ name, version, integrity }) => ({ name, version, integrity })) },
     development: release.development,
+    ...(release.buildIntent ? { buildIntent: release.buildIntent } : {}),
   }, null, 2)}\n`);
-  await installBundle({ root: target, bundle, apply: true, allowDevelopment: options.development });
-  await fs.writeFile(path.join(target, 'scripts/verify-boundaries.mjs'), "import './release/verify-consumer.mjs';\n");
+  await installBundle({ root: target, bundle, apply: true, allowDevelopment: !options.bundle || options.development });
+  await fs.writeFile(path.join(target, 'scripts/verify-boundaries.mjs'),
+    (release.development ? "process.argv.push('--development');\n" : '') + "await import('./release/verify-consumer.mjs');\n");
   run('npm', ['install', '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund'], target);
 }
 
@@ -162,11 +165,13 @@ async function main() {
   try {
     const bundle = options.bundle ? path.resolve(options.bundle)
       : (temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'yuva-generator-core-')));
-    if (!options.bundle) await packCore(sourceRoot, bundle, { allowDirty: options.development });
-    const release = await verifyBundle(bundle, { allowDevelopment: options.development });
+    if (!options.bundle) await packCore(sourceRoot, bundle, { allowDirty: options.development, development: true });
+    const release = await verifyBundle(bundle, { allowDevelopment: !options.bundle || options.development });
     await ensureEmptyTarget(target);
     await fs.cp(sourceRoot, target, { recursive: true, filter: copyFilter });
     await writeGeneratedConfig(target, options, bundle, release);
+    if (release.development) console.log('Local development bundle: npm test/check verify integrity with --development. This is not a published release or deployment approval.');
+    else console.log('Bundle integrity checked. Publication and deployment approval are not established by generation.');
   } finally { if (temporary) await fs.rm(temporary, { recursive: true, force: true }); }
 
   if (options.install) {
