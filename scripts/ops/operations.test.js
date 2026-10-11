@@ -19,6 +19,16 @@ describe('operations configuration and metadata-only monitoring', () => {
     expect(problems.length).toBeGreaterThan(2);
     expect(problems.join()).not.toContain(configured.AUTH_TOKEN_SECRET);
   });
+  it('validates self-hosted production without requiring Clerk or legacy claim secrets', () => {
+    const env = { ...configured, AUTH_MODE: 'self-hosted', CLERK_JWT_KEY: '', CLERK_AUTHORIZED_PARTIES: '', AUTH_TOKEN_SECRET: '',
+      BETTER_AUTH_URL: 'https://app.example.test', FRONTEND_URL: 'https://app.example.test', AUTH_TRUSTED_ORIGINS: 'https://app.example.test',
+      BETTER_AUTH_SECRET: 'synthetic-fixture-only-tND39ubKALz5LMFgVpPqnR2b', AUTH_MAIL_MODE: 'smtp',
+      AUTH_SMTP_HOST: 'smtp.example.test', AUTH_SMTP_USER: 'fixture', AUTH_SMTP_PASSWORD: 'fixture', AUTH_MAIL_FROM: 'auth@example.test' };
+    expect(productionProblems(env)).toEqual([]);
+    expect(productionProblems({ ...env, AUTH_MAIL_MODE: 'capture' }).join()).toMatch(/capture/u);
+    expect(productionProblems({ ...env, AUTH_SMTP_PASSWORD: '' }).join()).toMatch(/SMTP/u);
+    expect(productionProblems({ ...env, BETTER_AUTH_SECRET: '' }).join()).toMatch(/BETTER_AUTH_SECRET/u);
+  });
   it.each(['openai', 'anthropic', 'mock', 'deepseek', 'ollama', 'unknown'])('matches the production application provider support for %s', (provider) => {
     const env = { ...configured, AI_PROVIDER: provider, ANTHROPIC_API_KEY: 'fixture-key', ANTHROPIC_MODEL: 'fixture' };
     const supported = ['openai', 'anthropic'].includes(provider);

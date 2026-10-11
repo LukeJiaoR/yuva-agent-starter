@@ -6,6 +6,14 @@ The included app is a working text-assistant template. Replace its facts, prompt
 
 [简体中文](README.zh-CN.md) · [Quickstart](docs/quickstart.md) · [Documentation](docs/README.md) · [Architecture](ARCHITECTURE.md)
 
+## Self-hosted authentication
+
+Email/password signup, verification, password reset, cookie sessions, device
+sign-out and a loopback-only development inbox are available through the
+application-owned Better Auth adapter. Select `AUTH_MODE=self-hosted` and follow
+[Self-hosted auth setup](docs/self-hosted-auth.md). Existing Clerk mode remains
+available. No OAuth issuer, live provider setup or account migration runs automatically.
+
 ## What's included
 
 - **Web app:** React 19 + Vite, structured input, facts preview, light/dark themes, request status, and credit feedback.

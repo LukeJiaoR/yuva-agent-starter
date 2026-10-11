@@ -21,7 +21,7 @@ describe('operation identity, immutable quote and incremental migration', () => 
   afterAll(async () => close?.());
   it('adopts old schema once without changing identity or existing balance', async () => {
     expect((await getCreditBalance({ db, userId })).available).toBe(28);
-    expect((await db.query('SELECT * FROM starter_migrations ORDER BY version')).rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect((await db.query('SELECT * FROM starter_migrations ORDER BY version')).rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7]);
     expect((await store.reserve({ operation: operationFixture(userId, 'legacy'), quote: quoteFixture() })).kind).toBe('legacy');
     expect((await db.query("SELECT * FROM ai_operations WHERE client_request_id='legacy'")).rows).toHaveLength(0);
   });

@@ -18,7 +18,7 @@ describe('private release integrity and safe consumer upgrades', () => {
   it('packs only declared public runtime files with per-component hashes', async () => {
     expect(manifest.packages).toHaveLength(5);
     expect(manifest.compatibility.node).toEqual([24]);
-    expect(manifest.compatibility.starterMigrations).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(manifest.compatibility.starterMigrations).toEqual([1, 2, 3, 4, 5, 6, 7]);
     expect(manifest.compatibility.automaticMigrations).toBe(false);
     expect((await verifyBundle(bundle, { allowDevelopment: true })).version).toBe('1.5.0');
     expect(manifest.packages.every((p) => p.integrity.startsWith('sha512-'))).toBe(true);
@@ -97,6 +97,17 @@ describe('private release integrity and safe consumer upgrades', () => {
     `;
     await fs.writeFile(path.join(isolated, 'auth-composition.mjs'), composition);
     run(process.execPath, ['auth-composition.mjs'], isolated);
+    if (process.env.TEST_DATABASE_URL) {
+      await fs.mkdir(path.join(isolated, 'scripts'));
+      for (const entry of ['migrations.mjs', 'schema.sql', 'migrations']) await fs.cp(path.join(process.cwd(), 'scripts', entry), path.join(isolated, 'scripts', entry), { recursive: true });
+      await fs.copyFile(path.join(process.cwd(), 'scripts/release/fixtures/self-hosted-consumer.mjs'), path.join(isolated, 'self-hosted-consumer.mjs'));
+      run(process.execPath, ['self-hosted-consumer.mjs'], isolated);
+      // Repeat the same cookie/session/database contract with Clerk installed;
+      // explicit self-hosted selection must not silently change providers.
+      run('npm', ['install', '@clerk/backend@' + appManifest.dependencies['@clerk/backend'], '--ignore-scripts', '--no-audit', '--no-fund'], isolated);
+      run(process.execPath, ['self-hosted-consumer.mjs'], isolated);
+    }
+
     for (const component of manifest.packages) {
       expect(lock.packages[`node_modules/${component.name}`].integrity).toBe(component.integrity);
       expect(lock.packages[`node_modules/${component.name}`].engines.node).toBe('>=24 <25');

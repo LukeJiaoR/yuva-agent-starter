@@ -43,7 +43,7 @@ describe('database-wide migration coordination (real PostgreSQL)', () => {
     const original = await extension(apps[0]);
     expect(original).toHaveLength(1); expect(original[0].nspname).toMatch(/^app_[0-5]$/u);
     const snapshots = await Promise.all(apps.map(async (db) => (await db.query('SELECT version,name,checksum FROM starter_migrations ORDER BY version')).rows));
-    expect(snapshots.every((rows) => rows.length === 6)).toBe(true);
+    expect(snapshots.every((rows) => rows.length === 7)).toBe(true);
     await Promise.all(apps.map((db) => migrateDatabase(db)));
     expect(await extension(apps[0])).toEqual(original);
     for (const [index, db] of apps.entries()) {
@@ -79,7 +79,7 @@ describe('database-wide migration coordination (real PostgreSQL)', () => {
     expect(original).toHaveLength(1); expect(original[0].nspname).toBe('public');
     await apps[0].query('DROP SCHEMA app_0 CASCADE');
     expect(await extension(apps[1])).toEqual(original);
-    expect((await apps[1].query('SELECT count(*)::int AS count FROM starter_migrations')).rows[0].count).toBe(6);
+    expect((await apps[1].query('SELECT count(*)::int AS count FROM starter_migrations')).rows[0].count).toBe(7);
   }, 30000);
 
   it('rolls back failed setup and releases its connection and transaction lock for retry', async () => {
@@ -91,7 +91,7 @@ describe('database-wide migration coordination (real PostgreSQL)', () => {
       expect(await extension(db)).toHaveLength(0);
       expect((await db.query("SELECT to_regclass('app_0.starter_migrations') AS name")).rows[0].name).toBeNull();
       await migrateDatabase(db);
-      expect((await db.query('SELECT count(*)::int AS count FROM starter_migrations')).rows[0].count).toBe(6);
+      expect((await db.query('SELECT count(*)::int AS count FROM starter_migrations')).rows[0].count).toBe(7);
     } finally { await rm(directory, { recursive: true, force: true }); }
   }, 30000);
 
@@ -102,7 +102,7 @@ describe('database-wide migration coordination (real PostgreSQL)', () => {
       expect(original).toHaveLength(1); expect(original[0].nspname).toBe('public');
       await fixtures[0].close(); fixtures[0] = null;
       expect(await extension(fixtures[1].db)).toEqual(original);
-      expect((await fixtures[1].db.query('SELECT count(*)::int AS count FROM starter_migrations')).rows[0].count).toBe(6);
+      expect((await fixtures[1].db.query('SELECT count(*)::int AS count FROM starter_migrations')).rows[0].count).toBe(7);
     } finally { await Promise.all(fixtures.filter(Boolean).map((fixture) => fixture.close())); }
   }, 30000);
 });

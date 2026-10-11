@@ -86,6 +86,7 @@ function copyFilter(source) {
   if (segments.some((name) => ['.git', 'node_modules', 'dist', 'coverage', 'vendor', 'packages', 'examples', '.release', '.ai-gh-account'].includes(name))) return false;
   if (segments.some((name) => name.startsWith('.env') && name !== '.env.example')) return false;
   if (relative.endsWith('.log') || relative.endsWith('.tgz') || relative.endsWith('.DS_Store')) return false;
+  if (relative.startsWith('scripts/release/fixtures/')) return false;
   if (relative.startsWith('scripts/') && (relative.endsWith('.test.js') || relative.endsWith('create-web-app.mjs') || relative.endsWith('release/pack.mjs') || relative.endsWith('release/smoke-consumer.mjs'))) return false;
   if (relative.startsWith('.github/') && relative !== '.github/workflows' && relative !== '.github/workflows/ci.yml') return false;
   return true;

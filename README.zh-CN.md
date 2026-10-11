@@ -6,6 +6,12 @@
 
 [English](README.md) · [快速开始](docs/quickstart.md) · [完整文档](docs/README.md) · [架构](ARCHITECTURE.md)
 
+## 应用自托管认证
+
+应用内 Better Auth 适配器提供邮箱注册、验证、密码重置、Cookie 会话、设备退出及仅本机可用的开发收件箱。
+选择 `AUTH_MODE=self-hosted`，按[自托管认证指南](docs/self-hosted-auth.md)配置；原 Clerk 模式继续保留。
+此版本不提供 OAuth issuer，也不会自动配置真实第三方登录或迁移已有账号。同邮箱旧账号不会被自动认领。
+
 ## 包含什么
 
 - **Web 界面：** React 19 + Vite，结构化输入、事实预览、亮暗主题、请求状态和积分反馈

@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { authMode, readSelfHostedConfig } from '../../starter-app/server/auth/config.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 export async function verifyStack(file = new URL('../../ops/stack.json', import.meta.url)) {
@@ -25,17 +26,26 @@ export function productionProblems(env) {
   if (!['openai', 'anthropic'].includes(env.AI_PROVIDER)) errors.push('AI_PROVIDER: choose openai or anthropic');
   const database = required('DATABASE_URL');
   if (database) { try { if (!['postgres:', 'postgresql:'].includes(new URL(database).protocol)) throw new Error(); } catch { errors.push('DATABASE_URL: invalid PostgreSQL URL'); } }
-  for (const key of ['CORS_ORIGIN', 'CLERK_AUTHORIZED_PARTIES']) {
+  let mode;
+  try { mode = authMode(env); } catch (error) { errors.push(error.message); }
+  for (const key of mode === 'self-hosted' ? ['CORS_ORIGIN'] : ['CORS_ORIGIN', 'CLERK_AUTHORIZED_PARTIES']) {
     const value = required(key);
     if (value) for (const origin of value.split(',')) {
       try { const url = new URL(origin.trim()); if (url.protocol !== 'https:' || url.username || url.password || url.origin !== origin.trim()) throw new Error(); }
       catch { errors.push(`${key}: requires exact HTTPS origins`); }
     }
   }
-  if (!env.CLERK_JWT_KEY && !env.CLERK_SECRET_KEY) errors.push('Clerk: configure verification key or secret');
-  else required(env.CLERK_JWT_KEY ? 'CLERK_JWT_KEY' : 'CLERK_SECRET_KEY');
-  const authSecret = required('AUTH_TOKEN_SECRET');
-  if (authSecret && authSecret.length < 32) errors.push('AUTH_TOKEN_SECRET: requires at least 32 characters');
+  if (mode === 'self-hosted') {
+    try {
+      const auth = readSelfHostedConfig(env);
+      if (auth.mailMode === 'custom') errors.push('AUTH_MAIL_MODE: custom requires an application-injected adapter; standalone start requires smtp');
+    } catch (error) { errors.push(error.message); }
+  } else {
+    if (!env.CLERK_JWT_KEY && !env.CLERK_SECRET_KEY) errors.push('Clerk: configure verification key or secret');
+    else required(env.CLERK_JWT_KEY ? 'CLERK_JWT_KEY' : 'CLERK_SECRET_KEY');
+    const authSecret = required('AUTH_TOKEN_SECRET');
+    if (authSecret && authSecret.length < 32) errors.push('AUTH_TOKEN_SECRET: requires at least 32 characters');
+  }
   if (env.AI_PROVIDER === 'anthropic') { required('ANTHROPIC_API_KEY'); required('ANTHROPIC_MODEL'); }
   else {
     required('OPENAI_MODEL');
