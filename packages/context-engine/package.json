@@ -1,6 +1,6 @@
 {
   "name": "@yuva/context-engine",
-  "version": "1.5.0",
+  "version": "2.0.0",
   "type": "module",
   "description": "Session knowledge sandboxes, immutable snapshots, long/short-term memory, and context budget management",
   "main": "index.js",

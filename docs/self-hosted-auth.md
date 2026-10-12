@@ -8,12 +8,13 @@ and migration of existing Clerk users are intentionally not enabled in this slic
 Clerk remains available with `AUTH_MODE=clerk`, the backward-compatible default.
 
 The implementation lives in `starter-app/server/auth` and `starter-web/src/auth`.
-The five reusable packages, published versions, and checked-in consumer vendor
-bundles are unchanged. It uses the current-source provider-neutral `verifyRequest`
-and `findUser` ports; an older published auth-core artifact is not implicitly
-upgraded. Use a reviewed new core release before adopting this app in a released
-consumer. A local generated consumer can use an explicit `--development` bundle
-for evaluation; never overwrite the published 1.5.0 tarballs with current source.
+The adapter is not included in the five reusable core tarballs. It uses the
+provider-neutral `verifyRequest` and `findUser` ports introduced in core 2.0.0;
+an older published auth-core artifact is not implicitly upgraded. Use the
+authenticated 2.0.0 release and separately review this application code before
+adopting it in a released consumer. Existing published 1.x versions and checked-in
+consumer bundles stay unchanged. A local generated consumer can use an explicit
+`--development` bundle for evaluation; never overwrite published tarballs.
 
 ## Local quickstart
 

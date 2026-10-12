@@ -1,6 +1,6 @@
 {
   "name": "@yuva/billing-core",
-  "version": "1.5.0",
+  "version": "2.0.0",
   "type": "module",
   "description": "Financial credit balance management, two-phase reservation & settlement, and atomic credit transactions",
   "main": "index.js",
