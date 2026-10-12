@@ -1,14 +1,14 @@
 # Authentication adapters
 
-Status: source-level implementation for the identity portion of issue #50.
-This change does not publish a core release or change existing consumer pins.
-Consumers need an artifact containing these changes before using the new options;
-existing released artifacts may ignore unknown options or still require the Clerk
-SDK. Usage-store ownership and independent-consumer acceptance remain separate work.
+Core 2.0.0 introduces the identity ports described here. Consumers must install
+the authenticated 2.0.0 release artifacts before relying on these options;
+older releases may ignore unknown options or still require the Clerk SDK.
+Existing consumer pins do not change automatically. Usage-store ownership,
+identity migration and product acceptance remain separate work.
 
 ## Optional Clerk dependency
 
-Current-source `@yuva/auth-core` declares `@clerk/backend` as an optional peer and
+`@yuva/auth-core` 2.0.0 declares `@clerk/backend` as an optional peer and
 loads its verification module only when Clerk credential verification is needed.
 Following [npm's optional-peer contract](https://docs.npmjs.com/cli/v10/configuring-npm/package-json#peerdependenciesmeta),
 a consumer that uses its own request verifier does not need to install Clerk.
@@ -16,11 +16,11 @@ Importing the package root, security helpers, or the custom authentication
 middleware does not load the SDK.
 
 The default starter application explicitly depends on `@clerk/backend`, preserving
-its Clerk setup. When adopting a future artifact with this dependency boundary,
+its Clerk setup. When upgrading to 2.0.0,
 existing Clerk consumers must declare a compatible SDK directly in their own
 application (`@clerk/backend: ^3.16.3`) and update their lockfile. Do not remove it
 from a Clerk consumer merely because auth-core's peer is optional. Existing
-published versions and consumer vendor pins are unchanged by this source work.
+published 1.x versions and existing consumer vendor pins remain unchanged.
 
 A non-Clerk generated application can remove its direct Clerk dependency after
 supplying trusted `auth.verifyRequest` and `auth.findUser` composition. Keep the

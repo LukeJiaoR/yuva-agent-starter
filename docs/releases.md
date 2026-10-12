@@ -22,12 +22,28 @@ review the authenticated source/tag and changed manifest in every upgrade PR.
 ## Current runtime policy
 
 The current starter, generated products, maintained example, and core source
-support Node.js 24.x only (`>=24 <25`). The next versioned core release will carry
-this engine requirement and advertise only Node 24 in its compatibility manifest.
+support Node.js 24.x only (`>=24 <25`). Core 2.0.0 carries this engine requirement
+and advertises only Node 24 in its compatibility manifest.
 Published 1.x tags, archives, hashes, and their recorded compatibility remain
 immutable. Historical release notes describe those original releases, not the
 current starter's support policy. The example retains its original core-v1.2.0
 vendor bundle while requiring Node 24 at the application boundary.
+
+## Core 2.0.0 runtime and authentication boundaries
+
+[Core 2.0.0](releases/2.0.0.md) requires Node 24 and makes Clerk an optional peer
+of auth-core. Clerk applications must retain a direct `@clerk/backend: ^3.16.3`
+dependency; custom request authentication is opt-in. Production claim-token
+helpers require an explicit signing secret. These compatibility changes require
+a major coordinated version even where a consumer already meets the requirements.
+
+The OpenAI transport uses an explicit nonblank route, then `OPENAI_BASE_URL`,
+then the official endpoint. Gateway-bound products must validate their own route
+before delegation. Existing Credit APIs and output-token policies remain intact.
+See the [authentication ports](architecture/authentication.md) and release notes
+for upgrade checks. Application-owned self-hosted auth, schema and usage-store
+code are not installed by upgrading the five tarballs; consumer adoption remains
+a separate product decision.
 
 ## Core 1.5.0 explicit provider-default output policy
 

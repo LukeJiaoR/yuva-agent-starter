@@ -44,7 +44,7 @@
     "ops:restore-drill": "node scripts/ops/restore-drill.mjs"
   },
   "dependencies": {
-    "@yuva/billing-core": "1.5.0",
+    "@yuva/billing-core": "2.0.0",
     "dotenv": "^16.6.1",
     "pg": "^8.16.3"
   },
