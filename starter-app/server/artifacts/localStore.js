@@ -6,7 +6,7 @@ import { LIMITS, prepare, encode, decode, validId, failure } from './contract.js
 
 const MAX_RECORD_BYTES = Math.ceil(LIMITS.bytes / 3) * 4 + 8192;
 // Operator-owned, pre-created private directory. No path from a request is used.
-export function createLocalArtifactStore({ directory } = {}) {
+export function createImmutableLocalStore({ directory, prepare, encode, decode }) {
   if (typeof directory !== 'string' || !path.isAbsolute(directory) || path.resolve(directory) !== directory || directory === '/') throw new Error('ARTIFACT_DIRECTORY must be a normalized absolute private directory');
   async function checkDirectory() {
     let current = path.parse(directory).root;
@@ -73,6 +73,10 @@ export function createLocalArtifactStore({ directory } = {}) {
       catch { throw failure('artifact_unavailable', 404); }
     },
   };
+}
+
+export function createLocalArtifactStore({ directory } = {}) {
+  return createImmutableLocalStore({ directory, prepare, encode, decode });
 }
 
 export function configuredArtifactStore(env) {
