@@ -1,4 +1,5 @@
 import express from 'express';
+import { configuredStagedArtifactPipeline } from './artifacts/staging.js';
 import { configuredRemoteArtifactIngestor } from './artifacts/remoteIngestion.js';
 import { configuredArtifactStore } from './artifacts/localStore.js';
 import { createArtifactRoutes } from './routes/artifacts.routes.js';
@@ -36,7 +37,9 @@ export function createServer({
   const app = express();
   const artifactStore = configuredArtifactStore(env);
   app.locals.artifactStore = artifactStore;
-  app.locals.artifactIngestor = configuredRemoteArtifactIngestor(env, artifactStore);
+  const artifactPipeline = configuredStagedArtifactPipeline(env, artifactStore);
+  app.locals.artifactPipeline = artifactPipeline;
+  app.locals.artifactIngestor = configuredRemoteArtifactIngestor(env, artifactPipeline || artifactStore);
   const mode = authMode(env);
   if (mode === 'self-hosted' && auth) throw new Error('Self-hosted mode cannot be combined with a custom auth adapter');
   const activeDb = db || createDatabasePool({ databaseUrl: env.DATABASE_URL });
