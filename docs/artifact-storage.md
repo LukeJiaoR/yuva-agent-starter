@@ -1,8 +1,9 @@
 # Image artifact storage (local V1)
 
 This application-owned port implements the local storage subset of #77. It does
-not enable image generation (#78), change credits/ledger schemas, call a provider,
-fetch remote URLs, or provision S3/R2. Existing billing fulfillment contracts can
+not enable image generation (#78), change credits/ledger schemas, call a generation
+provider, or provision S3/R2. A separate opt-in trusted HTTPS ingestion port can
+fetch an already-generated PNG into this same immutable store. Existing billing fulfillment contracts can
 consume a successfully saved artifact. A generation success alone is not delivery.
 
 ## Opt-in composition
@@ -52,11 +53,77 @@ unknown spec fields are rejected. This synchronous bounded decoder is intended
 for the initial low-concurrency path; high-throughput execution needs a worker
 pool and admission limits before enabling it at scale.
 
-`url` and `sourceUrl` always reject with `artifact_remote_source_unsupported`,
-including trusted-looking HTTPS URLs. No HTTP request, redirect or DNS lookup is
-performed. Protocol allowlists, redirect rules, DNS/IP SSRF defenses, byte and
-time limits for remote transfer remain unimplemented, disabled scope. Do not feed
-an ephemeral provider URL into a fulfillment artifact or claim it was persisted.
+Direct `store.save` still rejects `url` and `sourceUrl` with
+`artifact_remote_source_unsupported`. Use the separate trusted ingestion port
+below; do not put an ephemeral provider URL into a fulfillment artifact or claim
+it was persisted before ingestion and save succeed.
+
+## Opt-in trusted HTTPS ingestion
+
+`app.locals.artifactIngestor.ingest({ sourceUrl, accountId, operationId,
+slot = 'output', provenance, expectedSpecs? }) -> artifact`
+
+The default is `ARTIFACT_REMOTE_INGESTION=disabled`, with an empty hostname
+allowlist. Explicitly select `ARTIFACT_REMOTE_INGESTION=https` and set
+`ARTIFACT_REMOTE_TRUSTED_HOSTNAMES` to comma-separated, exact, lowercase ASCII
+hostnames from a trusted application-owned provider configuration. Local storage
+must also be enabled. Enabling ingestion without a store or a nonempty valid
+allowlist fails startup. Wildcards, IP literals, trailing dots, ports and URLs are
+not allowed in the hostname configuration. Do not populate it from user input.
+There is still no HTTP upload, save or arbitrary URL ingestion endpoint; only
+trusted application code may invoke this port with an authenticated account and
+server-owned operation/slot. No default host or provider is configured.
+
+Source URLs are limited to 4096 characters, HTTPS on port 443, exact allowlisted
+hostnames, no userinfo, fragments, whitespace, backslashes or IP literals. DNS
+must return 1–64 answers, **all** public. `ipaddr.js` is a direct exact-pinned
+existing dependency (1.9.1), supplemented with conservative special-purpose
+range exclusions. IPv6 is restricted to global unicast 2000::/3, excluding
+special-purpose ranges including mapped/compatible, translation, Teredo, 6to4,
+benchmarking and documentation addresses. The conservative policy may reject
+some globally reachable special-purpose addresses. Keep it reviewed against the
+[IANA IPv4](https://www.iana.org/assignments/iana-ipv4-special-registry/) and
+[IPv6 registries](https://www.iana.org/assignments/iana-ipv6-special-registry/).
+
+The Node HTTPS request connects directly to one validated IP, with the original
+hostname for TLS SNI, certificate hostname verification and Host. No second DNS
+lookup, shared connection agent, proxy configuration, redirects or automatic
+retry is used. TLS verification stays enabled. The only request headers are
+Host, Accept: image/png and Accept-Encoding: identity; caller-provided headers,
+authentication, cookies and mixed byte/URL input are rejected. Signed source URL
+query parameters necessarily go to the selected trusted source, but source URLs
+are never added to artifact metadata, error causes or logs by this port. Native
+DNS/TLS/transport errors are replaced with fixed safe codes. Callers must also
+avoid logging the input URL or putting credentials/URLs into provenance.
+
+One 10-second total transfer deadline starts before DNS and includes DNS, socket
+connection, TLS, headers and all body chunks. DNS is not cancellable through the
+Node lookup API; late completion is ignored and cannot initiate a request.
+Requests and responses are destroyed on failure/timeout. Only status 200 and an
+exact image/png Content-Type are accepted. Any Content-Encoding, excessive or
+invalid Content-Length, truncated stream or length mismatch fails. Headers are
+bounded to 8 KiB and the body to 8 MiB, independently of Content-Length; chunked
+responses remain subject to the same byte cap. A bounded receive buffer prevents
+unbounded per-chunk accumulation. The original bytes must pass the same strict
+PNG and expected-spec validation described above. No format conversion occurs.
+
+Account, operation, slot, provenance and expected specs are validated/snapshotted
+before asynchronous work, and the hostname allowlist is copied at construction.
+Successful transfer alone is not availability: ingestion waits for the existing
+store's immutable save to succeed. Download/validation failures never call save.
+Exact retries retain existing idempotency/conflict rules. The transfer deadline
+does not interrupt the filesystem commit; a storage error is still an error and
+can require reconciliation of a fully published record, as described below.
+
+DNS and HTTPS request dependencies are injectable only in trusted code for
+synthetic tests. Tests use no external requests, live providers or credentials.
+This release does not implement durable generation-before-save recovery. A retry
+of ingestion downloads again and may fail if the source URL expired or its bytes
+changed. Retaining/staging already-generated bytes securely and replaying save
+across a process crash remains a separate orchestration requirement. Network
+allowlists, trusted DNS and outbound firewall rules remain useful operational
+defense in depth; address classification cannot defend against privileged local
+routing changes or a compromised allowed public endpoint.
 
 ## Identity, atomicity and recovery
 
