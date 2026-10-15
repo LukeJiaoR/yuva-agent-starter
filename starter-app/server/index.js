@@ -1,4 +1,6 @@
 import express from 'express';
+import { configuredArtifactStore } from './artifacts/localStore.js';
+import { createArtifactRoutes } from './routes/artifacts.routes.js';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
@@ -31,6 +33,8 @@ export function createServer({
   const env = config.env || process.env;
   const product = aiProduct ?? createAiProduct({ env, configuration: config.pricing, modelCatalog: config.modelCatalog, inputVersion: config.inputVersion });
   const app = express();
+  const artifactStore = configuredArtifactStore(env);
+  app.locals.artifactStore = artifactStore;
   const mode = authMode(env);
   if (mode === 'self-hosted' && auth) throw new Error('Self-hosted mode cannot be combined with a custom auth adapter');
   const activeDb = db || createDatabasePool({ databaseUrl: env.DATABASE_URL });
@@ -84,6 +88,8 @@ export function createServer({
     findUser: selfHosted?.findUser || auth?.findUser,
   });
   app.use(optionalAuth);
+
+  app.use(createArtifactRoutes({ store: artifactStore }));
 
   // Mount API routes
   app.use(createHealthRoutes({ adapter: activeAdapter, db: activeDb, authHealth: selfHosted?.readiness }));
