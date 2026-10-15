@@ -16,6 +16,7 @@ import { AccountControl, AuthNotice } from './auth/components.jsx';
 import { consumeAuthFragment, workspaceIdentity } from './auth/state.js';
 import { useAuth } from './auth/useAuth.js';
 import './styles.css';
+import { DemoCheckout } from './checkout/DemoCheckout.jsx';
 
 // Consume email-link fragments before React mounts or any API work begins.
 // AuthProvider scrubs this in-memory object when the link is used or dismissed.
@@ -49,6 +50,8 @@ export function AccountWorkspace() {
 }
 
 function App() {
+  const auth = useAuth();
+  const [page, setPage] = useState('workspace');
   const [theme, setTheme] = useState(initialTheme);
   const [readiness, setReadiness] = useState({ state: 'checking', label: 'Checking API' });
   const [subject, setSubject] = useState('A customer renewal decision');
@@ -202,6 +205,11 @@ function App() {
 
       <main className="workspace">
         <AuthNotice />
+        <nav className="workspace-nav" aria-label="Workspace pages">
+          <button className="secondary-button" aria-current={page === 'workspace' ? 'page' : undefined} onClick={() => setPage('workspace')}>Agent workspace</button>
+          {auth.enabled && <button className="secondary-button" aria-current={page === 'checkout' ? 'page' : undefined} onClick={() => setPage('checkout')}>Demo credit packs</button>}
+        </nav>
+        {page === 'checkout' ? <DemoCheckout /> : <>
         <section className="intro" aria-labelledby="page-title">
           <div>
             <p className="eyebrow">Grounded agent workspace</p>
@@ -306,6 +314,7 @@ function App() {
             )}
           </section>
         </section>
+        </>}
       </main>
     </div>
   );

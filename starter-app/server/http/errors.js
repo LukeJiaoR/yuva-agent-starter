@@ -38,6 +38,10 @@ export function toPublicError(error) {
     };
   }
 
+  if (error?.code === 'checkout_outcome_unknown') {
+    return { status: 503, code: 'checkout_outcome_unknown', message: 'The synthetic order outcome is unknown. Keep the same request ID and retry or read the order.' };
+  }
+
   if (code.startsWith('provider_')) {
     return { status: 503, code, message: PUBLIC_MESSAGES[code] || PUBLIC_MESSAGES.provider_unavailable };
   }

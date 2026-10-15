@@ -195,3 +195,7 @@ For suspected vulnerabilities or exposed secrets, follow [SECURITY.md](SECURITY.
 ### Local mock image product
 
 An opt-in authenticated **1×1 synthetic PNG demo** exercises durable image artifacts, fixed-credit settlement and scoped restart recovery without a real image provider. It is disabled by default and rejected in production. See [local mock image configuration and API](docs/mock-image-product.md).
+
+### Optional local synthetic checkout
+
+[Local synthetic checkout orders](docs/mock-checkout.md) provides an explicitly enabled, authenticated, loopback-only test order demo. It records pending/cancelled synthetic orders in the existing payments table. It never takes money or grants credits; the fixed pack values are illustrative only. Default off; requires a disposable-database acknowledgement and trusted local browser origin.
