@@ -1,4 +1,6 @@
 import express from 'express';
+import { configuredMockImageUseCase, createImageArtifactAuthorizer } from './application/mockImageUseCase.js';
+import { createImageRoutes } from './routes/images.routes.js';
 import { configuredStagedArtifactPipeline } from './artifacts/staging.js';
 import { configuredRemoteArtifactIngestor } from './artifacts/remoteIngestion.js';
 import { configuredArtifactStore } from './artifacts/localStore.js';
@@ -94,7 +96,10 @@ export function createServer({
   });
   app.use(optionalAuth);
 
-  app.use(createArtifactRoutes({ store: artifactStore }));
+  const mockImages = configuredMockImageUseCase({ env, db: activeDb, artifactStore, artifactPipeline, profile: config.imageProfile });
+  app.locals.mockImages = mockImages;
+  app.use(createArtifactRoutes({ store: artifactStore, authorizeArtifact: createImageArtifactAuthorizer({ db: activeDb, strict: Boolean(mockImages) }) }));
+  app.use(createImageRoutes({ images: mockImages }));
 
   // Mount API routes
   app.use(createHealthRoutes({ adapter: activeAdapter, db: activeDb, authHealth: selfHosted?.readiness }));
@@ -126,7 +131,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
   && process.env.NODE_ENV !== 'test' && !process.env.TEST_MODE) {
   const port = process.env.PORT || 3000;
   const app = createServer();
-  const host = app.locals.selfHostedAuth?.config.mailMode === 'capture' ? '127.0.0.1' : undefined;
+  const host = app.locals.mockImages || app.locals.selfHostedAuth?.config.mailMode === 'capture' ? '127.0.0.1' : undefined;
   app.listen(port, host, () => {
     console.log(`[Starter App] Server running at http://localhost:${port}`);
   });
