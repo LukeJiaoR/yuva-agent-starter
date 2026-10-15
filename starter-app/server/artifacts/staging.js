@@ -61,11 +61,19 @@ export function createStagedArtifactPipeline({ store, directory, artifactDirecto
     return result;
   }
   return {
+    ready: separated,
     async stage(input) { return stageRecord(prepare(input)); },
     async save(input) {
       const record = prepare(input); // Copy/validate before the first await.
       await stageRecord(record);
       return publish(record);
+    },
+    async inspect(input) {
+      if (!input || Object.keys(input).some((key) => !['accountId', 'operationId', 'slot'].includes(key))) throw failure('artifact_invalid_input');
+      const { accountId, operationId, slot = 'output' } = input;
+      await separated();
+      const record = await staged.get({ accountId, id: identity(accountId, operationId, slot) });
+      return structuredClone(record.artifact);
     },
     async recover(input) {
       if (!input || Object.keys(input).some((key) => !['accountId', 'operationId', 'slot'].includes(key))) throw failure('artifact_invalid_input');
