@@ -7,6 +7,8 @@ vi.mock('@yuva/ai-engine', async (importOriginal) => ({
   streamProviderText: boundary.transport,
 }));
 import { createChatStreamRoutes } from '../server/routes/chatStream.routes.js';
+import { catalogFixture } from './fixtures/modelCatalog.js';
+import { createServer } from '../server/index.js';
 import { createAiProduct, publicQuote } from '../server/domain/aiProduct.js';
 
 function compose(env, extra = {}) {
@@ -147,5 +149,62 @@ describe('default transport binding matches the frozen quote and usage identity'
     await expect(fixture.invoke()).rejects.toBeDefined();
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(String(fetch.mock.calls[0][0])).toBe('https://api.openai.com/v1/responses');
+  });
+});
+
+
+describe('catalog composition uses existing frozen transport and replay', () => {
+  it.each(['mock', 'openai', 'anthropic'])('executes approved %s text with frozen quote parameters', async (provider) => {
+    const catalog = catalogFixture(provider);
+    const env = { NODE_ENV: 'test', AI_PROVIDER: 'unknown', OPENAI_API_KEY: 'openai-fixture-key', ANTHROPIC_API_KEY: 'anthropic-fixture-key' };
+    const product = createAiProduct({ env, modelCatalog: catalog });
+    const f = compose(env, { product });
+    catalog.models[0].model = 'changed'; catalog.bindings[0].parameters.maxOutputTokens = 9;
+    await f.invoke();
+    expect(f.quote.modelBinding.version).toBe('v1');
+    expect(f.usageStore.start).toHaveBeenCalledWith(expect.objectContaining({ provider, model: product.model }));
+    if (provider === 'mock') expect(boundary.transport).not.toHaveBeenCalled();
+    else expect(boundary.transport).toHaveBeenCalledWith(expect.objectContaining({ provider, model: 'fixture-model',
+      apiKey: `${provider}-fixture-key`, options: expect.objectContaining({ maxOutputTokens: 512 }) }));
+  });
+
+  it('wires config.modelCatalog into createServer and rejects invalid binding before billing or provider', () => {
+    const db = { query: vi.fn() }; const operationStore = { reserve: vi.fn() };
+    const catalog = catalogFixture();
+    createServer({ db, operationStore, config: { env: { AI_PROVIDER: 'unknown' }, modelCatalog: catalog } });
+    expect(boundary.ports).toBeTruthy();
+    catalog.bindings[0].taskType = 'image';
+    expect(() => createServer({ db, operationStore, config: { modelCatalog: catalog } })).toThrow('unsupported_model_capability');
+    expect(db.query).not.toHaveBeenCalled(); expect(operationStore.reserve).not.toHaveBeenCalled();
+    expect(boundary.transport).not.toHaveBeenCalled();
+  });
+
+  it('replays old settled quote after a binding version/model/price change without invoking a provider', async () => {
+    const catalog = catalogFixture('openai');
+    const before = createAiProduct({ modelCatalog: catalog });
+    const quote = before.policy.quote({}, before.executionLimits);
+    catalog.bindings[0].version = 'v2'; catalog.models[0].model = 'new-model';
+    const after = createAiProduct({ modelCatalog: catalog, configuration: { strategy: 'fixed', featureKey: 'deep_reasoning', credits: 9 } });
+    const operationStore = { find: vi.fn().mockResolvedValue({ clientRequestId: 'existing', financialStatus: 'settled', quote,
+      decision: { credits: 2 }, fulfillment: { status: 'ready', artifacts: [{ type: 'text', text: 'Saved answer' }] } }), reserve: vi.fn() };
+    compose({}, { product: after, operationStore });
+    const result = await boundary.ports.billingPort.getRequest({ request: { requestId: 'existing', question: 'Hello' }, user: { id: 'user' }, db: {} });
+    expect(result.request).toMatchObject({ assistant_text: 'Saved answer', creditsUsed: 2, pricing: { credits: 2 } });
+    expect(quote.modelBinding).toMatchObject({ version: 'v1', model: 'fixture-model' });
+    expect(quote.limits.paths).toEqual([{ provider: 'openai', model: 'fixture-model' }]);
+    expect(operationStore.find.mock.lastCall[0].operation.inputVersion).toBe(before.inputVersion);
+    expect(operationStore.reserve).not.toHaveBeenCalled(); expect(boundary.transport).not.toHaveBeenCalled();
+  });
+
+  it('fails closed rather than executing an old quote on a changed model path', async () => {
+    const catalog = catalogFixture('openai'); const before = createAiProduct({ modelCatalog: catalog });
+    const quote = before.policy.quote({}, before.executionLimits);
+    catalog.models[0].model = 'new-model'; catalog.bindings[0].version = 'v2';
+    const after = createAiProduct({ modelCatalog: catalog });
+    const f = compose({ OPENAI_API_KEY: 'fixture-key' }, { product: after });
+    await expect(boundary.ports.usagePort.invoke({ invoke: boundary.ports.streamPort.streamProviderText,
+      options: { messages: [{ role: 'user', content: 'Hello' }] }, reservation: { operation: { id: 'old', taskType: 'text',
+        createdAt: new Date().toISOString(), quote } } })).rejects.toMatchObject({ code: 'execution_model_forbidden' });
+    expect(f.usageStore.start).not.toHaveBeenCalled(); expect(boundary.transport).not.toHaveBeenCalled();
   });
 });

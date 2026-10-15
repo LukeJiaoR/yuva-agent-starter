@@ -1,5 +1,6 @@
 import { createFixedOperationPricingPolicy, createTokenPricingPolicy, createOperationBillingPort,
   creditInteger, invariant, validateLimits } from '@yuva/billing-core';
+import { resolveFeatureBinding } from './modelCatalog.js';
 import { PricingCatalog } from './pricing.config.js';
 import { withChatProjection, persistChatProjection, persistDefaultTextResult } from './chatResultPersistence.js';
 
@@ -18,24 +19,33 @@ export function resolveProductInputVersion(inputVersion = '1') {
 }
 
 /** Trusted product composition, never constructed from HTTP request bodies. */
-export function createAiProduct({ env = process.env, configuration, inputVersion, policy, evaluateFulfillment, persistResult } = {}) {
+export function createAiProduct({ env = process.env, configuration, modelCatalog, inputVersion, policy, evaluateFulfillment, persistResult } = {}) {
   const version = resolveProductInputVersion(inputVersion);
   const config = structuredClone(configuration ?? { strategy: env.PRICING_STRATEGY ?? 'fixed',
     featureKey: PricingCatalog.features.deep_reasoning.key, credits: PricingCatalog.features.deep_reasoning.credits,
     inputRate: { credits: 1, tokens: 1000 }, outputRate: { credits: 2, tokens: 1000 } });
   invariant(['fixed', 'token'].includes(config.strategy), 'invalid_pricing_configuration');
   invariant(typeof config.featureKey === 'string' && /^[a-z][a-z0-9_]{1,79}$/u.test(config.featureKey), 'invalid_feature_configuration');
-  const provider = env.AI_PROVIDER || 'openai';
+  const binding = modelCatalog === undefined ? null : resolveFeatureBinding(modelCatalog, config.featureKey);
+  invariant(!binding || config.limits === undefined, 'catalog_limits_conflict');
+  const provider = binding?.provider ?? (env.AI_PROVIDER || 'openai');
   invariant(['mock', 'openai', 'anthropic'].includes(provider), 'unsupported_provider');
   invariant(!(provider === 'mock' && env.NODE_ENV === 'production'), 'mock_provider_forbidden');
-  const model = provider === 'mock' ? 'starter-local' : provider === 'anthropic'
-    ? env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022' : env.OPENAI_MODEL || 'gpt-4o';
-  const executionLimits = validateLimits({ models: [model], paths: [{ provider, model }], maxCalls: 1, maxRetries: 0,
+  const model = binding?.model ?? (provider === 'mock' ? 'starter-local' : provider === 'anthropic'
+    ? env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022' : env.OPENAI_MODEL || 'gpt-4o');
+  const executionLimits = binding?.executionLimits ?? validateLimits({ models: [model], paths: [{ provider, model }], maxCalls: 1, maxRetries: 0,
     maxInputTokens: 24000, maxOutputTokens: 1024, deadlineMs: 60000, ...config.limits });
-  const pricing = policy ?? (config.strategy === 'fixed'
+  const basePricing = policy ?? (config.strategy === 'fixed'
     ? createFixedOperationPricingPolicy({ credits: creditInteger(config.credits) })
     : createTokenPricingPolicy({ inputRate: config.inputRate, outputRate: config.outputRate, allowEstimates: config.allowEstimates ?? false }));
-  invariant(pricing.id === config.strategy && typeof pricing.quote === 'function' && typeof pricing.decide === 'function', 'invalid_pricing_configuration');
+  invariant(basePricing.id === config.strategy && typeof basePricing.quote === 'function' && typeof basePricing.decide === 'function', 'invalid_pricing_configuration');
+  const pricing = binding ? { id: basePricing.id, version: basePricing.version,
+    decide(...args) { return basePricing.decide(...args); },
+    quote(...args) {
+    const quote = basePricing.quote(...args);
+    invariant(quote.authorizedCredits <= binding.snapshot.budget.maxCredits, 'model_binding_budget_exceeded');
+    return { ...quote, modelBinding: structuredClone(binding.snapshot) };
+  } } : basePricing;
   const capabilities = { taskType: 'text', outputLimit: true, abort: true };
   const preview = pricing.quote({ taskType: 'text', mode: 'stream', featureKey: config.featureKey }, executionLimits);
   return {
