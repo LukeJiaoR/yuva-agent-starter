@@ -29,7 +29,7 @@ export function createServer({
   config = {},
 } = {}) {
   const env = config.env || process.env;
-  const product = aiProduct ?? createAiProduct({ env, configuration: config.pricing, inputVersion: config.inputVersion });
+  const product = aiProduct ?? createAiProduct({ env, configuration: config.pricing, modelCatalog: config.modelCatalog, inputVersion: config.inputVersion });
   const app = express();
   const mode = authMode(env);
   if (mode === 'self-hosted' && auth) throw new Error('Self-hosted mode cannot be combined with a custom auth adapter');
