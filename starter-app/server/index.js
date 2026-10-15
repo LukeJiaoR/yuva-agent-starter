@@ -1,5 +1,7 @@
 import { createOperationsReadRoutes } from './routes/operations.routes.js';
 import express from 'express';
+import { configuredMockCheckout } from './application/mockCheckout.js';
+import { createMockCheckoutRoutes } from './routes/mockCheckout.routes.js';
 import { configuredMockImageUseCase, createImageArtifactAuthorizer } from './application/mockImageUseCase.js';
 import { createImageRoutes } from './routes/images.routes.js';
 import { configuredStagedArtifactPipeline } from './artifacts/staging.js';
@@ -105,6 +107,10 @@ export function createServer({
   app.use(createOperationsReadRoutes({ db: activeDb, enabled: env.OPERATIONS_VIEW === 'read-only',
     operationsReadCapabilities: config.operationsReadCapabilities }));
 
+  const mockCheckout = configuredMockCheckout({ env, db: activeDb });
+  app.locals.mockCheckout = mockCheckout;
+  app.use(createMockCheckoutRoutes({ checkout: mockCheckout }));
+
   // Mount API routes
   app.use(createHealthRoutes({ adapter: activeAdapter, db: activeDb, authHealth: selfHosted?.readiness }));
   app.use(createAnalyzeRoutes({ adapter: activeAdapter }));
@@ -135,7 +141,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
   && process.env.NODE_ENV !== 'test' && !process.env.TEST_MODE) {
   const port = process.env.PORT || 3000;
   const app = createServer();
-  const host = app.locals.mockImages || app.locals.selfHostedAuth?.config.mailMode === 'capture' ? '127.0.0.1' : undefined;
+  const host = app.locals.mockImages || app.locals.mockCheckout || app.locals.selfHostedAuth?.config.mailMode === 'capture' ? '127.0.0.1' : undefined;
   app.listen(port, host, () => {
     console.log(`[Starter App] Server running at http://localhost:${port}`);
   });
