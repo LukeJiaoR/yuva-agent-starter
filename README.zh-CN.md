@@ -191,3 +191,5 @@ TEST_DATABASE_URL=postgresql://starter:starter@localhost:5432/starter_agent npm 
 ### 本地 MOCK 图片闭环
 
 可显式启用需登录的 **1×1 合成 PNG 演示**，验证持久化产物、固定积分结算及限定当前账号/操作的重启恢复，不调用真实图片供应商。默认关闭，生产环境禁止启用。配置与 API 见[本地 MOCK 图片说明](docs/mock-image-product.md)。
+
+只读操作时间线与可信运营授权接线：[操作视图指南](docs/operations-read-only.md)。默认关闭。

@@ -1,3 +1,4 @@
+import { createOperationsReadRoutes } from './routes/operations.routes.js';
 import express from 'express';
 import { configuredMockImageUseCase, createImageArtifactAuthorizer } from './application/mockImageUseCase.js';
 import { createImageRoutes } from './routes/images.routes.js';
@@ -100,6 +101,9 @@ export function createServer({
   app.locals.mockImages = mockImages;
   app.use(createArtifactRoutes({ store: artifactStore, authorizeArtifact: createImageArtifactAuthorizer({ db: activeDb, strict: Boolean(mockImages) }) }));
   app.use(createImageRoutes({ images: mockImages }));
+
+  app.use(createOperationsReadRoutes({ db: activeDb, enabled: env.OPERATIONS_VIEW === 'read-only',
+    operationsReadCapabilities: config.operationsReadCapabilities }));
 
   // Mount API routes
   app.use(createHealthRoutes({ adapter: activeAdapter, db: activeDb, authHealth: selfHosted?.readiness }));
