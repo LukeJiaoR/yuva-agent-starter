@@ -15,7 +15,9 @@ import { AuthProvider } from './auth/AuthProvider.jsx';
 import { AccountControl, AuthNotice } from './auth/components.jsx';
 import { consumeAuthFragment, workspaceIdentity } from './auth/state.js';
 import { useAuth } from './auth/useAuth.js';
+import { OperationHistory } from './operations/OperationHistory.jsx';
 import './styles.css';
+import { DemoCheckout } from './checkout/DemoCheckout.jsx';
 
 // Consume email-link fragments before React mounts or any API work begins.
 // AuthProvider scrubs this in-memory object when the link is used or dismissed.
@@ -49,6 +51,8 @@ export function AccountWorkspace() {
 }
 
 function App() {
+  const auth = useAuth();
+  const [view, setView] = useState('workspace');
   const [theme, setTheme] = useState(initialTheme);
   const [readiness, setReadiness] = useState({ state: 'checking', label: 'Checking API' });
   const [subject, setSubject] = useState('A customer renewal decision');
@@ -202,6 +206,13 @@ function App() {
 
       <main className="workspace">
         <AuthNotice />
+        {auth.sessionStatus === 'authenticated' && <nav className="workspace-nav" aria-label="Workspace views">
+          <button type="button" className="secondary-button" aria-pressed={view === 'workspace'} onClick={() => setView('workspace')}>Workspace</button>
+          <button type="button" className="secondary-button" aria-pressed={view === 'history'} onClick={() => setView('history')}>Operation history</button>
+          {auth.enabled && <button type="button" className="secondary-button" aria-pressed={view === 'checkout'} onClick={() => setView('checkout')}>Demo credit packs</button>}
+        </nav>}
+        {view === 'history' ? <OperationHistory /> : view === 'checkout' ? <DemoCheckout /> : <>
+
         <section className="intro" aria-labelledby="page-title">
           <div>
             <p className="eyebrow">Grounded agent workspace</p>
@@ -306,6 +317,7 @@ function App() {
             )}
           </section>
         </section>
+        </>}
       </main>
     </div>
   );

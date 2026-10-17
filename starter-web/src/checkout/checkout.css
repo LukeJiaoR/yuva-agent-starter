@@ -1,0 +1,12 @@
+.workspace-nav, .demo-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 24px; }
+.workspace-nav button[aria-current="page"] { border-color: var(--accent); color: var(--accent); }
+.demo-checkout h1 { margin-top: 0; }
+.demo-disclaimer { padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--soft); }
+.demo-pack-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 20px; }
+.demo-card { padding: 24px; margin-bottom: 24px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+.demo-card p, .demo-history p, .demo-history small { color: var(--muted); }
+.demo-card dl { display: grid; grid-template-columns: minmax(100px, 1fr) 2fr; gap: 12px; }
+.demo-card dd { margin: 0; overflow-wrap: anywhere; }
+.demo-history ul { padding: 0; list-style: none; }
+.demo-history li { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 0; }
+.demo-history .secondary-button { text-align: left; }
