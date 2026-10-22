@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [24]
+        node-version: ['24.22.1']
 
     services:
       postgres:
@@ -35,7 +35,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js ${{ matrix.node-version }}.x
+      - name: Setup Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
@@ -68,7 +68,7 @@ jobs:
           npm --prefix examples/customer-support run check
 
       - name: Build Portable Containers
-        if: matrix.node-version == 24
+        if: matrix.node-version == '24.22.1'
         run: |
           docker build -f starter-app/Dockerfile -t starter-api:ci .
           docker build -f starter-web/Dockerfile -t starter-web:ci .

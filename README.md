@@ -30,7 +30,7 @@ The default app delivers text over SSE. It buffers model output for validation b
 ### Requirements
 
 - Git
-- **Node.js 24.x** is required (`>=24 <25`; `.nvmrc` selects 24). Node.js 22 is no longer supported.
+- **Node.js 24.x** is required (`>=24.22.1 <25`; `.nvmrc` selects 24.22.1). Node.js 22 is no longer supported.
 - **npm 10** is the declared package manager (`npm@10.9.8`).
 - **PostgreSQL 16+**, or Docker with **Compose v2** for the supplied PostgreSQL 16 container.
 

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { CORE_NAMES } from './release/artifacts.mjs';
 
-const nodeEngine = '>=24 <25';
+const nodeEngine = '>=24.22.1 <25';
 const read = (file) => fs.readFile(path.resolve(file), 'utf8');
 const json = async (file) => JSON.parse(await read(file));
 const roots = ['', 'examples/customer-support/'];
@@ -20,7 +20,7 @@ describe('Node 24-only runtime policy', () => {
         expect(lock.packages[directory].engines.node, `${root}lock:${directory}`).toBe(nodeEngine);
       }
       expect((await json(`${root}package.json`)).packageManager).toBe('npm@10.9.8');
-      expect((await read(`${root}.nvmrc`)).trim()).toBe('24');
+      expect((await read(`${root}.nvmrc`)).trim()).toBe('24.22.1');
       expect(await read(`${root}.npmrc`)).toMatch(/^engine-strict=true$/mu);
     }
   });
@@ -28,7 +28,7 @@ describe('Node 24-only runtime policy', () => {
   it('keeps local containers and current operations metadata on Node 24', async () => {
     for (const root of roots) {
       for (const application of ['starter-app', 'starter-web']) {
-        expect(await read(`${root}${application}/Dockerfile`)).toMatch(/^FROM node:24-alpine(?: AS build)?$/mu);
+        expect(await read(`${root}${application}/Dockerfile`)).toMatch(/^FROM node:24\.22\.1-alpine(?: AS build)?$/mu);
       }
     }
     const stack = await json('ops/stack.json');
@@ -38,11 +38,12 @@ describe('Node 24-only runtime policy', () => {
 
   it('runs the existing CI and release gates only on Node 24', async () => {
     const ci = await read('.github/workflows/ci.yml');
-    expect(ci).toMatch(/^\s+node-version: \[24\]$/mu);
+    expect(ci).toMatch(/^\s+node-version: \['24\.22\.1'\]$/mu);
+    expect(ci).toContain("if: matrix.node-version == '24.22.1'");
     expect(ci).toContain('npm run test:acceptance');
     expect(ci).toContain('npm --prefix examples/customer-support run check');
     expect(ci).toContain('docker build -f starter-app/Dockerfile');
     expect(ci).toContain('docker build -f starter-web/Dockerfile');
-    expect(await read('.github/workflows/release-core.yml')).toMatch(/^\s+node-version: 24$/mu);
+    expect(await read('.github/workflows/release-core.yml')).toMatch(/^\s+node-version: '24\.22\.1'$/mu);
   });
 });

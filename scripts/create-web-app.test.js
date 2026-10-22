@@ -57,12 +57,12 @@ describe('create-web-app generator', () => {
     const lock = JSON.parse(await fs.readFile(path.join(target, 'package-lock.json'), 'utf8'));
     for (const directory of ['', 'starter-app', 'starter-web']) {
       const manifest = JSON.parse(await fs.readFile(path.join(target, directory, 'package.json'), 'utf8'));
-      expect(manifest.engines.node).toBe('>=24 <25');
-      expect(lock.packages[directory].engines.node).toBe('>=24 <25');
+      expect(manifest.engines.node).toBe('>=24.22.1 <25');
+      expect(lock.packages[directory].engines.node).toBe('>=24.22.1 <25');
     }
-    expect((await fs.readFile(path.join(target, '.nvmrc'), 'utf8')).trim()).toBe('24');
+    expect((await fs.readFile(path.join(target, '.nvmrc'), 'utf8')).trim()).toBe('24.22.1');
     expect(await fs.readFile(path.join(target, '.npmrc'), 'utf8')).toMatch(/^engine-strict=true$/mu);
-    expect(await fs.readFile(path.join(target, '.github/workflows/ci.yml'), 'utf8')).toMatch(/^\s+node-version: \[24\]$/mu);
+    expect(await fs.readFile(path.join(target, '.github/workflows/ci.yml'), 'utf8')).toMatch(/^\s+node-version: \['24\.22\.1'\]$/mu);
   });
 
   it('writes ready-to-edit API and web environment files without copying local secrets', async () => {

@@ -28,7 +28,7 @@
 ### 环境要求
 
 - Git
-- 必须使用 **Node.js 24.x**（`>=24 <25`，`.nvmrc` 指定 24）；不再支持 Node.js 22
+- 必须使用 **Node.js 24.x**（`>=24.22.1 <25`，`.nvmrc` 指定 24.22.1）；不再支持 Node.js 22
 - 项目声明的包管理器为 **npm 10**（`npm@10.9.8`）
 - **PostgreSQL 16+**，或安装 Docker 与 **Compose v2**，使用仓库提供的 PostgreSQL 16 容器
 
