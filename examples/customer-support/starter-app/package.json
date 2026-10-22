@@ -25,6 +25,6 @@
     "@yuva/admin-core": "file:../vendor/yuva-core/1.2.0/yuva-admin-core-1.2.0.tgz"
   },
   "engines": {
-    "node": ">=24 <25"
+    "node": ">=24.22.1 <25"
   }
 }

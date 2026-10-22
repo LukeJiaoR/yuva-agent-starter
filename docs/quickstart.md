@@ -4,7 +4,8 @@ Run the included text-assistant template locally with a mock model and a develop
 
 ## Requirements
 
-- Git, Node.js 24.x (`>=24 <25`), and npm 10 (`npm@10.9.8` is declared)
+- Git, Node.js 24.x (`>=24.22.1 <25`), and npm 10 (`npm@10.9.8` is declared)
+  - Local development, CI, and Node container stages pin the [24.22.1 security release](https://nodejs.org/en/blog/release/v24.22.1). Rebuild existing images to adopt the patched runtime; changing source pins does not upgrade running deployments.
 - PostgreSQL 16+, or Docker with Compose v2 to run the included PostgreSQL 16 service
 - Available local ports: `5173` (web), `3000` (API), and `5432` (database)
 

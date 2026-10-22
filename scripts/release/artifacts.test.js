@@ -110,7 +110,7 @@ describe('private release integrity and safe consumer upgrades', () => {
 
     for (const component of manifest.packages) {
       expect(lock.packages[`node_modules/${component.name}`].integrity).toBe(component.integrity);
-      expect(lock.packages[`node_modules/${component.name}`].engines.node).toBe('>=24 <25');
+      expect(lock.packages[`node_modules/${component.name}`].engines.node).toBe('>=24.22.1 <25');
     }
   }, 120000);
   it('refuses artifact tampering and replacement of an already pinned version', async () => {
