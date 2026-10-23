@@ -23,19 +23,23 @@ export function hashSecret(raw, env = process.env) {
 }
 
 export function createClaimToken({ ttlDays = 14, idempotencySeed = null, env = process.env } = {}) {
+  if (!Number.isFinite(ttlDays) || ttlDays <= 0) throw new TypeError('Claim token TTL must be a positive finite number');
+  const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000);
+  if (!Number.isFinite(expiresAt.getTime())) throw new RangeError('Claim token expiry is out of range');
   const secret = getClaimSecret(env);
   const raw = idempotencySeed
     ? crypto.createHmac('sha256', secret)
       .update(`claim-token:v1:${String(idempotencySeed)}`)
       .digest('base64url')
     : crypto.randomBytes(32).toString('base64url');
-  const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000);
   return { raw, hash: hashSecret(raw, env), expiresAt };
 }
 
 export function verifyClaimToken(raw, expectedHash, expiresAt, env = process.env) {
   if (!raw || !expectedHash || !expiresAt) return false;
-  if (new Date(expiresAt).getTime() <= Date.now()) return false;
+  if (!(expiresAt instanceof Date) && !['string', 'number'].includes(typeof expiresAt)) return false;
+  const expiry = new Date(expiresAt).getTime();
+  if (!Number.isFinite(expiry) || expiry <= Date.now()) return false;
   const actual = Buffer.from(hashSecret(raw, env));
   const expected = Buffer.from(String(expectedHash));
   return (

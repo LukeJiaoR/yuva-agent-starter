@@ -12,7 +12,9 @@ const context = () => ({ operation, request: { conversationId, question: 'Questi
 const fulfillment = () => ({ status: 'ready', ruleVersion: '1', resultId: operation.id, accountId: operation.accountId,
   artifacts: [{ id: operation.id, accountId: operation.accountId, type: 'text', state: 'available', text: 'Approved visible answer' }] });
 function client() {
-  return { query: vi.fn(async (sql) => ({ rows: sql.includes('INSERT INTO messages') ? [{ id: 'user' }, { id: 'assistant' }] : [{ id: 'fixture' }] })) };
+  return { query: vi.fn(async (sql) => ({ rows: sql.includes('SELECT conversation_id') ? []
+    : sql.includes('next_turn_sequence-1') ? [{ turn_sequence: '1' }]
+      : sql.includes('INSERT INTO messages') ? [{ id: 'user' }, { id: 'assistant' }] : [{ id: 'fixture' }] })) };
 }
 const facts = (tx, value = withChatProjection(fulfillment(), context())) => ({ client: tx, operation,
   ledgerRequest: { id: 'ledger-fixture' }, fulfillment: value });
@@ -44,19 +46,32 @@ describe('product-owned durable chat projection', () => {
   it('writes conversation and exactly two messages through the supplied transaction client', async () => {
     const tx = client();
     await persistChatProjection(facts(tx));
-    expect(tx.query).toHaveBeenCalledTimes(2);
+    expect(tx.query).toHaveBeenCalledTimes(4);
     expect(tx.query.mock.calls[0][1]).toEqual([conversationId, operation.accountId, 'fixture']);
-    expect(tx.query.mock.calls[1][1]).toEqual([conversationId, 'Question', 'Approved visible answer', operation.accountId]);
+    expect(tx.query.mock.calls[1][1]).toEqual([operation.id]);
+    expect(tx.query.mock.calls[2][1]).toEqual([conversationId, operation.accountId]);
+    expect(tx.query.mock.calls[3][1]).toEqual([conversationId, 'Question', 'Approved visible answer', operation.accountId, '1', operation.id]);
     expect(tx.query.mock.calls[0][0]).toContain('WHERE conversations.user_id=$2 RETURNING id');
   });
 
   it.each(['conversation', 'messages'])('rejects zero-row %s writes instead of reporting success', async (table) => {
     const tx = client();
     tx.query.mockImplementation(async (sql) => ({ rows: sql.includes(table === 'conversation' ? 'INSERT INTO conversations' : 'INSERT INTO messages')
-      ? [] : [{ id: 'fixture' }] }));
+      ? [] : sql.includes('SELECT conversation_id') ? [] : [{ id: 'fixture', turn_sequence: '1' }] }));
     await expect(persistChatProjection(facts(tx))).rejects.toMatchObject({
       code: table === 'conversation' ? 'chat_conversation_forbidden' : 'chat_message_persistence_failed',
     });
+  });
+
+  it('replays an already projected turn without allocating another sequence', async () => {
+    const tx = client(); const query = tx.query.getMockImplementation();
+    tx.query.mockImplementation(async (sql, values) => sql.includes('SELECT conversation_id')
+      ? { rows: [{ conversation_id: conversationId, role: 'user', content: 'Question', turn_sequence: '7' },
+        { conversation_id: conversationId, role: 'assistant', content: 'Approved visible answer', turn_sequence: '7' }] }
+      : query(sql, values));
+    await persistChatProjection(facts(tx));
+    expect(tx.query).toHaveBeenCalledTimes(2);
+    expect(tx.query.mock.calls.some(([sql]) => sql.includes('INSERT INTO messages'))).toBe(false);
   });
 
   it('discards raw SQL/connection details from database failures', async () => {
@@ -74,8 +89,8 @@ describe('product-owned durable chat projection', () => {
     const normal = client(); await billing.persistResult(facts(normal, value));
     const recovered = client(); await persistRecoveredChatResult(facts(recovered, value));
     expect(normal.query.mock.calls).toEqual(recovered.query.mock.calls);
-    expect(normal.query).toHaveBeenCalledTimes(3);
-    expect(normal.query.mock.calls[2][1]).toEqual(['ledger-fixture', 'Approved visible answer', 0, operation.accountId]);
+    expect(normal.query).toHaveBeenCalledTimes(5);
+    expect(normal.query.mock.calls[4][1]).toEqual(['ledger-fixture', 'Approved visible answer', 0, operation.accountId]);
   });
 
   it('calls custom hooks once with the original contract and never also executes the default ledger writer', async () => {
@@ -89,7 +104,7 @@ describe('product-owned durable chat projection', () => {
     const tx = client(); const inputFacts = facts(tx, value);
     expect(await billing.persistResult(inputFacts)).toEqual({ id: 'custom-result' });
     expect(persistResult).toHaveBeenCalledExactlyOnceWith(inputFacts);
-    expect(tx.query).toHaveBeenCalledTimes(2);
+    expect(tx.query).toHaveBeenCalledTimes(4);
     const recovery = client(); await expect(persistRecoveredChatResult(facts(recovery, value))).rejects.toThrow('chat_writer_unavailable');
     expect(recovery.query).not.toHaveBeenCalled();
   });

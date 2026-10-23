@@ -61,6 +61,7 @@ describe('create-web-app generator', () => {
       expect(lock.packages[directory].engines.node).toBe('>=24.22.1 <25');
     }
     expect((await fs.readFile(path.join(target, '.nvmrc'), 'utf8')).trim()).toBe('24.22.1');
+    expect((await fs.readFile(path.join(target, '.node-version'), 'utf8')).trim()).toBe('24.22.1');
     expect(await fs.readFile(path.join(target, '.npmrc'), 'utf8')).toMatch(/^engine-strict=true$/mu);
     expect(await fs.readFile(path.join(target, '.github/workflows/ci.yml'), 'utf8')).toMatch(/^\s+node-version: \['24\.22\.1'\]$/mu);
   });

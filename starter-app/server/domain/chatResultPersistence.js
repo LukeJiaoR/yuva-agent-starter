@@ -63,10 +63,27 @@ export async function persistChatProjection({ client, operation, fulfillment }) 
     VALUES ($1,$2,$3,NOW()) ON CONFLICT (id) DO UPDATE SET updated_at=NOW()
     WHERE conversations.user_id=$2 RETURNING id`, [projection.conversationId, operation.accountId, projection.domainKey]);
   invariant(conversation.rows.length === 1, 'chat_conversation_forbidden', 403);
-  const messages = await write(client, `INSERT INTO messages (conversation_id,role,content,created_at)
-    SELECT c.id,'user',$2,NOW() FROM conversations c WHERE c.id=$1 AND c.user_id=$4
-    UNION ALL SELECT c.id,'assistant',$3,NOW() FROM conversations c WHERE c.id=$1 AND c.user_id=$4
-    RETURNING id`, [projection.conversationId, projection.question, projection.text, operation.accountId]);
+  // The upsert holds the conversation row lock until settlement commits. Every
+  // writer (including recovery) allocates a whole turn under that same lock.
+  const existing = await write(client, `SELECT conversation_id,role,content,turn_sequence
+    FROM messages WHERE source_operation_id=$1 ORDER BY role_order`, [operation.id]);
+  if (existing.rows.length) {
+    invariant(existing.rows.length === 2 && existing.rows.every((m) => m.conversation_id === projection.conversationId)
+      && existing.rows[0].role === 'user' && existing.rows[0].content === projection.question
+      && existing.rows[1].role === 'assistant' && existing.rows[1].content === projection.text
+      && existing.rows[0].turn_sequence === existing.rows[1].turn_sequence, 'chat_projection_conflict');
+    return; // Recovery/replay never allocates or duplicates an already saved turn.
+  }
+  const allocated = await write(client, `UPDATE conversations SET next_turn_sequence=next_turn_sequence+1
+    WHERE id=$1 AND user_id=$2 RETURNING next_turn_sequence-1 AS turn_sequence`,
+  [projection.conversationId, operation.accountId]);
+  invariant(allocated.rows.length === 1, 'chat_conversation_forbidden', 403);
+  const messages = await write(client, `INSERT INTO messages
+    (conversation_id,role,content,created_at,turn_sequence,role_order,source_operation_id,ordering_source)
+    SELECT c.id,'user',$2,NOW(),$5::bigint,0,$6::uuid,'projected' FROM conversations c WHERE c.id=$1 AND c.user_id=$4
+    UNION ALL SELECT c.id,'assistant',$3,NOW(),$5::bigint,1,$6::uuid,'projected' FROM conversations c WHERE c.id=$1 AND c.user_id=$4
+    RETURNING id`, [projection.conversationId, projection.question, projection.text, operation.accountId,
+    allocated.rows[0].turn_sequence, operation.id]);
   invariant(messages.rows.length === 2, 'chat_message_persistence_failed');
 }
 

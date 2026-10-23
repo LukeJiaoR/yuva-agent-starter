@@ -2,7 +2,7 @@ import express from 'express';
 import { createStreamEmitter, writeSseEvent, setSseHeaders } from '@yuva/ai-engine';
 import { createAiProduct, publicQuote } from '../domain/aiProduct.js';
 import { createChatUseCase } from '../application/chatUseCase.js';
-import { toPublicError } from '../http/errors.js';
+import { publicChatError } from '../http/errors.js';
 
 export function createChatStreamRoutes({ db, adapter, callAIStream, validateOutput,
   operationStore, usageStore, env = process.env, product = createAiProduct({ env }) } = {}) {
@@ -44,13 +44,9 @@ export function createChatStreamRoutes({ db, adapter, callAIStream, validateOutp
     },
 
     emitError(emitter, error) {
-      const publicError = toPublicError(error);
-      emitter?.emit?.('error', {
-        code: publicError.code,
-        message: publicError.message,
-        retryable: error?.retryable ?? false,
-        financial_status: error?.financialStatus,
-      });
+      const { body } = publicChatError(error);
+      const { error: _alias, ...data } = body;
+      emitter?.emit?.('error', data);
     },
 
     async replayExisting({ existing, res }) {
@@ -126,27 +122,23 @@ export function createChatStreamRoutes({ db, adapter, callAIStream, validateOutp
       }
 
       if (!result.streamed && !res.headersSent) {
-        return res.status(result.statusCode || result.status || 200).json(result.body || result);
+        const status = result.statusCode || result.status || 200;
+        if (status >= 400 || result.error || result.code) {
+          const safe = publicChatError(result);
+          return res.status(safe.status).json(safe.body);
+        }
+        return res.status(status).json(result.body || result);
       }
       if (result.streamed && !res.writableEnded) {
         res.end();
       }
     } catch (err) {
-      const publicError = toPublicError(err);
-      if (!res.headersSent) {
-        return res.status(publicError.status).json({
-          error: publicError.code,
-          message: publicError.message,
-        });
-      }
+      const safe = publicChatError(err);
+      if (!res.headersSent) return res.status(safe.status).json(safe.body);
       try {
-        writeSseEvent(res, {
-          event: 'error',
-          data: {
-            error: publicError.code,
-            message: publicError.message,
-          },
-        });
+        const emitter = createStreamEmitter({ write: (event) => writeSseEvent(res, event) });
+        const { error: _alias, ...data } = safe.body;
+        emitter.emit('error', data);
       } catch {}
       res.end();
     }

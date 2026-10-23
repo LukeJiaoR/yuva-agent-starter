@@ -65,6 +65,8 @@ function App() {
   const activeRequest = useRef(null);
   const alive = useRef(true);
   const requestSnapshot = useRef(null);
+  const submitting = useRef(false);
+  const draftRevision = useRef(0);
   const [pricing, setPricing] = useState(null);
   const [quote, setQuote] = useState(null);
   const [charge, setCharge] = useState(null);
@@ -104,6 +106,16 @@ function App() {
     }
   }, [parameters]);
 
+  function editDraft(setter, value, affectsFacts = true) {
+    if (requestSnapshot.current) return;
+    draftRevision.current += 1;
+    activeRequest.current?.abort();
+    setter(value);
+    if (affectsFacts) setAnalysis(null);
+    setAnswer(''); setError(''); setStage('idle');
+    setQuote(null); setCharge(null); setFinancialStatus(null);
+  }
+
   async function runAnalysis() {
     if (!alive.current) return null;
     if (requestSnapshot.current) return analysis;
@@ -132,53 +144,62 @@ function App() {
   }
 
   async function askAgent() {
-    const activeAnalysis = requestSnapshot.current ? analysis : analysis || await runAnalysis();
-    if (!alive.current || !activeAnalysis) return;
-    const controller = new AbortController();
-    activeRequest.current?.abort();
-    activeRequest.current = controller;
-    setError('');
-    setAnswer('');
-    setStage('streaming');
-    if (!requestSnapshot.current) {
-      requestSnapshot.current = { question, subject, parameters: parsedParameters.value, requestId: crypto.randomUUID() };
-      setQuote(null); setCharge(null); setFinancialStatus(null);
-    }
-    let terminal = false;
+    if (submitting.current || !alive.current) return;
+    if (!requestSnapshot.current && parsedParameters.error) { setError(parsedParameters.error); return; }
+    submitting.current = true;
+    const revision = draftRevision.current;
     try {
-      const response = await streamChat(requestSnapshot.current, {
-        signal: controller.signal,
-        onEvent(event) {
-          if (!ownsRequest(controller)) return;
-          const payload = event.data?.data || event.data || {};
-          if (event.type === 'start' && payload.pricing) setQuote(payload.pricing);
-          if (event.type === 'pending') { setStage('pending'); setFinancialStatus(payload.status); }
-          if (event.type === 'text_delta') setAnswer((current) => current + (payload.text || ''));
-          if (event.type === 'error') {
-            setError(payload.message || 'The agent could not answer.');
-            setFinancialStatus(payload.financial_status);
-            terminal = ['released','settled','no_charge'].includes(payload.financial_status);
-            setStage(terminal ? 'ready' : 'pending');
-            if (terminal) requestSnapshot.current = null;
-          }
-          if (event.type === 'done') {
-            terminal = true; setStage('complete'); setCharge(payload.credits_used);
-            setFinancialStatus(payload.financial_status); requestSnapshot.current = null;
-          }
-        },
-      });
-      if (!ownsRequest(controller)) return;
-      if (!terminal) {
-        setStage('pending');
-        if (response.status) setFinancialStatus(response.status);
+      const activeAnalysis = requestSnapshot.current ? analysis : analysis || await runAnalysis();
+      if (!alive.current || !activeAnalysis || revision !== draftRevision.current) return;
+      const controller = new AbortController();
+      activeRequest.current?.abort();
+      activeRequest.current = controller;
+      setError('');
+      setAnswer('');
+      setStage('streaming');
+      if (!requestSnapshot.current) {
+        requestSnapshot.current = { question, subject, parameters: parsedParameters.value, requestId: crypto.randomUUID() };
+        setQuote(null); setCharge(null); setFinancialStatus(null);
       }
-    } catch (requestError) {
-      if (!ownsRequest(controller) || terminal) return;
-      if (requestError.name !== 'AbortError') setError(requestError.message);
-      if ([400,401,402,403,422].includes(requestError.status)) {
-        requestSnapshot.current = null; setStage('ready');
-      } else setStage('pending');
-    }
+      let terminal = false;
+      try {
+        const response = await streamChat(requestSnapshot.current, {
+          signal: controller.signal,
+          onEvent(event) {
+            if (!ownsRequest(controller)) return;
+            const payload = event.data?.data || event.data || {};
+            if (event.type === 'start' && payload.pricing) setQuote(payload.pricing);
+            if (event.type === 'pending') { setStage('pending'); setFinancialStatus(payload.status); }
+            if (event.type === 'text_delta') setAnswer((current) => current + (payload.text || ''));
+            if (event.type === 'error') {
+              setError(payload.message || 'The agent could not answer.');
+              setFinancialStatus(payload.financial_status);
+              terminal = ['released','refunded','settled','no_charge'].includes(payload.financial_status);
+              setStage(terminal ? 'ready' : 'pending');
+              if (terminal) requestSnapshot.current = null;
+            }
+            if (event.type === 'done') {
+              terminal = true; setStage('complete'); setCharge(payload.credits_used);
+              setFinancialStatus(payload.financial_status); requestSnapshot.current = null;
+            }
+          },
+        });
+        if (!ownsRequest(controller)) return;
+        if (!terminal) {
+          setStage('pending');
+          if (response.status) setFinancialStatus(response.status);
+        }
+      } catch (requestError) {
+        if (!ownsRequest(controller) || terminal) return;
+        if (requestError.name !== 'AbortError') setError(requestError.message);
+        const knownTerminal = ['released', 'refunded', 'settled', 'no_charge'].includes(requestError.financialStatus)
+          || requestError.status === 409 && ['request_released', 'request_refunded'].includes(requestError.code);
+        if (knownTerminal || [400,401,402,403,422].includes(requestError.status)) {
+          requestSnapshot.current = null; setStage('ready');
+          if (knownTerminal) setFinancialStatus(requestError.financialStatus || (requestError.code === 'request_refunded' ? 'refunded' : 'released'));
+        } else setStage('pending');
+      }
+    } finally { submitting.current = false; }
   }
 
   const busy = stage === 'analyzing' || stage === 'streaming';
@@ -237,7 +258,7 @@ function App() {
 
             <label className="field">
               <span>Subject</span>
-              <input value={subject} onChange={(event) => setSubject(event.target.value)} maxLength={240} />
+              <input value={subject} onChange={(event) => editDraft(setSubject, event.target.value)} disabled={busy || Boolean(requestSnapshot.current)} maxLength={240} />
               <small>The person, document, event, or object your adapter will evaluate.</small>
             </label>
 
@@ -246,7 +267,8 @@ function App() {
               <textarea
                 className="code-input"
                 value={parameters}
-                onChange={(event) => setParameters(event.target.value)}
+                onChange={(event) => editDraft(setParameters, event.target.value)}
+                disabled={busy || Boolean(requestSnapshot.current)}
                 rows={7}
                 spellCheck="false"
                 aria-invalid={Boolean(parsedParameters.error)}
@@ -289,7 +311,7 @@ function App() {
 
             <label className="field question-field">
               <span>Question</span>
-              <textarea value={question} onChange={(event) => setQuestion(event.target.value)} rows={3} maxLength={4000} />
+              <textarea value={question} onChange={(event) => editDraft(setQuestion, event.target.value, false)} disabled={busy || Boolean(requestSnapshot.current)} rows={3} maxLength={4000} />
             </label>
 
             <p role="status">
@@ -308,7 +330,7 @@ function App() {
 
             {busy && <div className="answer-skeleton" aria-label="Agent is working"><span /><span /><span /></div>}
             {error && <Status kind="error">{error}</Status>}
-            {stage === 'pending' && <Status kind="pending">{financialStatus === 'reconciliation_required' ? 'Awaiting billing review' : 'Result pending'} · Charges are not final.</Status>}
+            {stage === 'pending' && <Status kind="pending">{financialStatus === 'reconciliation_required' ? 'Awaiting billing review' : 'Result pending'} · Charges are not final. Inputs are locked to this pending request; checking reuses its saved inputs.</Status>}
             {answer && (
               <article className="answer" aria-live="polite">
                 <Status kind="success">{financialStatus === 'no_charge' ? 'Completed without charge' : stage === 'complete' ? 'Completed' : 'Result received'}{charge != null ? ` · ${charge} credits charged` : ''}</Status>

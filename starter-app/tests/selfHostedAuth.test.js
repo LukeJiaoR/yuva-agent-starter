@@ -76,7 +76,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('self-hosted PostgreSQL and HTTP
   it('migrates idempotently without changing legacy users or ledger', async () => {
     const before = (await db.query('SELECT * FROM starter_migrations ORDER BY version')).rows;
     await migrateDatabase(db); expect((await db.query('SELECT * FROM starter_migrations ORDER BY version')).rows).toEqual(before);
-    expect(before.at(-1).version).toBe(7);
+    expect(before.at(-1).version).toBe(9);
   });
   it('requires verification, preserves host-only HttpOnly Lax cookies, and provisions one grant under concurrency', async () => {
     const { email, token } = await register({ verify: false });

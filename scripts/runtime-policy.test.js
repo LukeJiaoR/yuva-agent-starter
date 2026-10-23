@@ -21,6 +21,7 @@ describe('Node 24-only runtime policy', () => {
       }
       expect((await json(`${root}package.json`)).packageManager).toBe('npm@10.9.8');
       expect((await read(`${root}.nvmrc`)).trim()).toBe('24.22.1');
+      expect((await read(`${root}.node-version`)).trim()).toBe('24.22.1');
       expect(await read(`${root}.npmrc`)).toMatch(/^engine-strict=true$/mu);
     }
   });

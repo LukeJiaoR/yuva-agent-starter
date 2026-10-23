@@ -9,7 +9,7 @@ const reportPath = path.join(directory, 'vitest.json');
 const required = ['epicAcceptance', 'operationStore', 'usageStore', 'fixedPricing', 'executionBudget',
   'reliableSettlement', 'tokenPricing', 'recoveryLease', 'recoveryRunner', 'chatStream',
   'httpContract', 'imageProduct', 'imageProductHttp', 'imageGenerations', 'imageSubmissionContract',
-  'artifactStorage', 'artifactRemoteIngestion', 'artifactStaging', 'productComposition', 'product-examples', 'selfHostedAuth'];
+  'creditRefunds', 'creditAdjustments', 'chatPublicErrors', 'chatMessageOrder', 'workspaceRequests', 'workspaceApi', 'privacyExpiry', 'artifactStorage', 'artifactRemoteIngestion', 'artifactStaging', 'productComposition', 'product-examples', 'selfHostedAuth'];
 try {
   const result = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm',
     ['test', '--', '--reporter=default', '--reporter=json', `--outputFile.json=${reportPath}`],

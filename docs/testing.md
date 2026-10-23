@@ -152,3 +152,71 @@ substituted for provider measurements. Costs use integer strings and decimal
 scale, grouped by currency; cached/reasoning metrics remain subsets.
 
 Self-hosted authentication adds `selfHostedAuth.test.js` to the required real-PostgreSQL gate; see [auth validation](self-hosted-auth.md#http-boundary-and-validation).
+
+## Chat message order upgrade
+
+Migration `009-chat-message-order.sql` adds conversation-local turn sequences,
+role positions and operation identity. New normal and recovery writers acquire
+one conversation row lock and insert an entire user/assistant turn in the same
+settlement transaction. Replaying that projection does not allocate another
+sequence or add messages. Context selects the newest complete turns within 20
+messages, preserves their business order, prunes whole turns for the token budget,
+and appends the required current question last. Concurrent turns are ordered by
+successful projection serialization, not provider start time or random UUIDs.
+
+Stop old application and recovery writers before applying the migration and
+restart only compatible writers afterward. No deployed migration is edited.
+Test the upgrade on a disposable copy first. The migration preserves all message
+IDs, content, metadata and timestamps, and does not update operations or financial
+history. Its historical compatibility rules are deliberately conservative:
+
+- A message with a unique, non-null timestamp in its conversation retains that
+  provable chronological position (`legacy_timestamp`). This is a singleton
+  history group; it does not claim a recovered request/response pairing. Whole-turn
+  trimming is guaranteed for proven projected pairs, not these historical
+  singletons; their message ordering is preserved, but their original semantic
+  turn boundary remains unknown.
+- A tied timestamp is recovered as one user/assistant turn only when exactly two
+  messages match exactly one settled/no-charge durable projection, and that
+  projection matches no other group (`legacy_projection`).
+- Other ties, duplicate projection matches and null timestamps remain unchanged
+  with no assigned sequence (`legacy_unknown`). Random IDs are never treated as
+  evidence of question/answer order.
+
+A conversation containing any unresolved message returns HTTP 409 with code
+`conversation_history_order_unavailable` before reserving credits or calling the
+provider. The public message explains that the original messages are preserved
+and asks the user to start a new conversation. Historical completed request
+replay still works without reading conversation history. This is a compatibility
+change for ambiguous old conversations; it does not silently omit their history.
+
+Before upgrading, this read-only query estimates the timestamp groups requiring
+review (projection matching may resolve some of them):
+
+```sql
+SELECT COUNT(*) AS groups_needing_review, COALESCE(SUM(message_count),0) AS messages_needing_review
+FROM (
+  SELECT conversation_id, created_at, COUNT(*) AS message_count
+  FROM messages GROUP BY conversation_id, created_at
+  HAVING COUNT(*) > 1 OR created_at IS NULL
+) uncertain;
+```
+
+After applying the migration to that disposable copy, this read-only query gives
+the exact unresolved counts. Review them before deciding when to upgrade:
+
+```sql
+SELECT COUNT(*) AS unresolved_messages,
+       COUNT(DISTINCT conversation_id) AS affected_conversations
+FROM messages WHERE turn_sequence IS NULL;
+```
+
+Do not repair uncertainty by changing financial state or assigning arbitrary
+sequence numbers. A separately reviewed data repair needs actual source evidence;
+otherwise keep the originals and start a new conversation.
+
+`chatMessageOrder.test.js` verifies equal timestamps, concurrent writers,
+projection replay, rollback, the 20-message boundary, and fresh/upgraded schemas
+with uniquely matched, missing, duplicated and differently timestamped history.
+`chatPublicErrors.test.js` injects private synthetic failure details into each
+HTTP/SSE phase; `chatUseCase.test.js` checks the final provider message sequence.

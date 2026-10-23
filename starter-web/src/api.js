@@ -8,7 +8,8 @@ async function readJsonResponse(response) {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(body.message || body.error || 'The request failed.');
-    error.code = body.error || 'request_failed';
+    error.code = body.code || body.error || 'request_failed';
+    error.financialStatus = body.financial_status;
     error.status = response.status;
     throw error;
   }

@@ -97,21 +97,32 @@ export function createChatUseCase({ db, adapter, callAIStream, validateOutput,
       let history = [];
       try {
         const ownership = await activeDb.query(`SELECT EXISTS(SELECT 1 FROM conversations
-          WHERE id=$1 AND user_id<>$2) AS forbidden`, [conversationId, user.id]);
+          WHERE id=$1 AND user_id<>$2) AS forbidden,
+          EXISTS(SELECT 1 FROM messages m JOIN conversations c ON c.id=m.conversation_id
+            WHERE c.id=$1 AND c.user_id=$2 AND m.turn_sequence IS NULL) AS unordered`, [conversationId, user.id]);
         if (ownership.rows[0]?.forbidden) {
           throw new AgentRuntimeError('invalid_request', 'chat_conversation_forbidden',
             'Conversation is not available for this account.', { status: 403 });
         }
+        if (ownership.rows[0]?.unordered) {
+          throw new AgentRuntimeError('invalid_request', 'conversation_history_order_unavailable',
+            'Historical message order cannot be verified. Start a new conversation.', { status: 409 });
+        }
         const histRes = await activeDb.query(
-          `SELECT m.role, m.content
+          `SELECT m.role, m.content, m.turn_sequence
              FROM messages m
              JOIN conversations c ON c.id = m.conversation_id
             WHERE m.conversation_id = $1 AND c.user_id = $2
-            ORDER BY m.created_at DESC
-            LIMIT 20`,
+              AND m.turn_sequence IN (
+                SELECT turn_sequence FROM (
+                  SELECT turn_sequence, SUM(COUNT(*)) OVER (ORDER BY turn_sequence DESC) AS message_count
+                  FROM messages WHERE conversation_id=$1 AND turn_sequence IS NOT NULL GROUP BY turn_sequence
+                ) recent WHERE message_count<=20
+              )
+            ORDER BY m.turn_sequence DESC, m.role_order DESC`,
           [conversationId, user.id],
         );
-        // Reverse recent 20 messages into chronological order
+        // Reverse the last complete turns (at most 20 messages) into business order
         history = (histRes.rows || []).slice().reverse();
       } catch (error) {
         if (error instanceof AgentRuntimeError) throw error;
@@ -144,33 +155,42 @@ export function createChatUseCase({ db, adapter, callAIStream, validateOutput,
   // 2. Context Port (Using @yuva/context-engine allocateContextBudget)
   const contextPort = {
     async resolveContext({ request }) {
+      // Selection priority and rendering order are independent. Keep every
+      // persisted turn atomic during pruning, render retained history first, and
+      // always end with the required current question.
+      const historyUnits = [];
+      for (const [index, message] of (request.history || []).entries()) {
+        const prior = historyUnits.at(-1);
+        const payload = { role: message.role, content: message.content };
+        if (message.turn_sequence != null && prior?.turnSequence === message.turn_sequence) {
+          prior.payload.push(payload);
+          prior.text += `\n${message.role}: ${message.content}`;
+        } else {
+          historyUnits.push({ key: `history.${index}`, category: 'history', channel: 'message',
+            required: false, turnSequence: message.turn_sequence,
+            text: `${message.role}: ${message.content}`, payload: [payload] });
+        }
+      }
       const units = [
-        {
-          key: 'system.facts',
-          category: 'knowledge',
-          channel: 'system',
-          required: true,
-          text: JSON.stringify(request.factsSnapshot?.facts || {}),
-        },
-        {
-          key: 'user.question',
-          category: 'question',
-          channel: 'message',
-          required: true,
-          text: request.question,
-        },
-        ...(request.history || []).map((m, idx) => ({
-          key: `history.${idx}`,
-          category: 'history',
-          channel: 'message',
-          required: false,
-          text: `${m.role}: ${m.content}`,
-        })),
+        { key: 'system.facts', category: 'knowledge', channel: 'system', required: true,
+          text: JSON.stringify(request.factsSnapshot?.facts || {}) },
+        ...historyUnits,
+        { key: 'user.question', category: 'question', channel: 'message', required: true,
+          text: request.question, payload: [{ role: 'user', content: request.question }] },
       ];
 
+      const budgetTokens = 6000;
+      // This rejection is definitive: context is prepared before reservation.
+      // Do not turn arbitrary allocator/database failures into editable retries.
+      const requiredTokens = units.filter(unit => unit.required)
+        .reduce((total, unit) => total + countUnicodeTokens(unit.text), 0);
+      if (requiredTokens > budgetTokens) {
+        throw new AgentRuntimeError('invalid_request', 'context_budget_exceeded',
+          'Required facts and question exceed the context budget.', { status: 422 });
+      }
       const budgetResult = allocateContextBudget({
         units,
-        budgetTokens: 6000,
+        budgetTokens,
         tokenCounter: countUnicodeTokens,
       });
 
@@ -189,20 +209,7 @@ export function createChatUseCase({ db, adapter, callAIStream, validateOutput,
       const systemPrompt = DomainPrompts.formatSystemPrompt(context?.contextPayload || {});
       const messageUnits = context?.messageUnits || [];
 
-      const messages = messageUnits.map((unit) => {
-        if (unit.key === 'user.question') {
-          return { role: 'user', content: unit.text };
-        }
-        const colonIndex = unit.text.indexOf(': ');
-        if (colonIndex > 0) {
-          const role = unit.text.slice(0, colonIndex);
-          const content = unit.text.slice(colonIndex + 2);
-          if (role === 'user' || role === 'assistant' || role === 'system') {
-            return { role, content };
-          }
-        }
-        return { role: 'user', content: unit.text };
-      });
+      const messages = messageUnits.flatMap((unit) => unit.payload);
 
       const userUnit = messageUnits.find((u) => u.key === 'user.question');
       const userPrompt = userUnit ? userUnit.text : '';

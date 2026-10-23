@@ -299,3 +299,28 @@ describe('@yuva/ai-engine AgentRuntime', () => {
     expect(clientDisconnect.retryable).toBe(true);
   });
 });
+
+describe('runtime error diagnostic boundary', () => {
+  it('keeps raw exceptions available to internal classification without copying them into default logs', async () => {
+    const privateDetail = 'SYNTHETIC_PRIVATE_PROVIDER_SQL_DETAIL';
+    const original = Object.assign(new Error(privateDetail), { code: privateDetail, statusCode: 503, retryable: true });
+    const logger = { error: vi.fn(), warn: vi.fn() };
+    const classify = vi.fn((error, reason, phase) => classifyRuntimeError(error, reason, phase));
+    const result = await createAgentRuntime({ billingPort: { getRequest: async () => { throw original; } } })({ logger, errorPort: { classify } });
+    expect(classify).toHaveBeenCalledWith(original, expect.any(Function), 'preflight');
+    expect(result).toMatchObject({ statusCode: 503, retryable: true, terminalStatus: 'unreserved' });
+    expect(JSON.stringify([logger.error.mock.calls, logger.warn.mock.calls])).not.toContain(privateDetail);
+  });
+  it('does not log private hook or reconciliation exception messages or codes', async () => {
+    const privateDetail = 'SYNTHETIC_PRIVATE_HOOK_DETAIL';
+    const fail = async () => { throw Object.assign(new Error(privateDetail), { code: privateDetail }); };
+    const logger = { error: vi.fn(), warn: vi.fn() };
+    await createAgentRuntime({ billingPort: { reserve: async () => ({}), onFailure: fail },
+      validationPort: { createDelivery: () => ({ abort: fail }) }, streamPort: { streamProviderText: fail } })({ logger });
+    await createAgentRuntime({ billingPort: { settle: async () => ({ status: 'settled' }) },
+      memoryPort: { persistCandidate: fail }, telemetryPort: { record: fail },
+      streamPort: { createEmitter: () => ({}), emitDone() { throw new Error(privateDetail); } } })({ logger });
+    expect(logger.warn).toHaveBeenCalled();
+    expect(JSON.stringify([logger.error.mock.calls, logger.warn.mock.calls])).not.toContain(privateDetail);
+  });
+});
