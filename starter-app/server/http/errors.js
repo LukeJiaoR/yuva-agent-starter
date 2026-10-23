@@ -2,6 +2,7 @@
 // exception's message/publicMessage, arbitrary code, stack, or provider body.
 const PUBLIC_MESSAGES = Object.freeze({
   unsupported_operation: 'This task type and execution mode are not enabled.',
+  context_budget_exceeded: 'The facts and question are too large. Shorten the parameters or question and try again.',
   invalid_json: 'The request body must be valid JSON.',
   invalid_request: 'The request is invalid. Review the submitted fields and try again.',
   unauthorized: 'Authentication is required.',

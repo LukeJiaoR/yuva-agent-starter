@@ -179,9 +179,18 @@ export function createChatUseCase({ db, adapter, callAIStream, validateOutput,
           text: request.question, payload: [{ role: 'user', content: request.question }] },
       ];
 
+      const budgetTokens = 6000;
+      // This rejection is definitive: context is prepared before reservation.
+      // Do not turn arbitrary allocator/database failures into editable retries.
+      const requiredTokens = units.filter(unit => unit.required)
+        .reduce((total, unit) => total + countUnicodeTokens(unit.text), 0);
+      if (requiredTokens > budgetTokens) {
+        throw new AgentRuntimeError('invalid_request', 'context_budget_exceeded',
+          'Required facts and question exceed the context budget.', { status: 422 });
+      }
       const budgetResult = allocateContextBudget({
         units,
-        budgetTokens: 6000,
+        budgetTokens,
         tokenCounter: countUnicodeTokens,
       });
 

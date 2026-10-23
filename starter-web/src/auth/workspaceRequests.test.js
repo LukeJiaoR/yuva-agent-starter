@@ -105,6 +105,33 @@ describe('workspace request and input contracts (#89 S06/S07)', () => {
     expect(container.textContent).not.toContain('Check result');
     expect(container.querySelector('input').disabled).toBe(false);
   });
+  it('lets a definitive context-budget rejection be corrected with a new request ID', async () => {
+    streamChat.mockRejectedValueOnce(Object.assign(new Error('Shorten the parameters or question.'), {
+      status: 422, code: 'context_budget_exceeded', financialStatus: 'unreserved',
+    }));
+    await renderWithAuth(account('A'));
+    await change(container.querySelector('textarea.code-input'), JSON.stringify({ material: '事实'.repeat(7000) }));
+    await click('Prepare and continue');
+    const originalId = streamChat.mock.calls[0][0].requestId;
+    expect(container.querySelector('textarea.code-input').disabled).toBe(false);
+    expect(container.textContent).not.toContain('Check result');
+    await change(container.querySelector('textarea.code-input'), JSON.stringify({ material: 'Short facts' }));
+    await click('Prepare and continue');
+    expect(analyzeInput).toHaveBeenCalledTimes(2);
+    expect(streamChat.mock.calls[1][0].requestId).not.toBe(originalId);
+    expect(streamChat.mock.calls[1][0].parameters).toEqual({ material: 'Short facts' });
+  });
+  it.each(['unreserved', 'reconciliation_required', undefined])('preserves identity for an uncertain 500 even with financial status %s', async (financialStatus) => {
+    streamChat.mockRejectedValue(Object.assign(new Error('Outcome unknown'), {
+      status: 500, code: 'commit_outcome_unknown', financialStatus,
+    }));
+    await renderWithAuth(account('A'));
+    await click('Prepare and continue');
+    const original = structuredClone(streamChat.mock.calls[0][0]);
+    expect(container.querySelector('textarea.code-input').disabled).toBe(true);
+    await click('Check result');
+    expect(streamChat.mock.calls[1][0]).toEqual(original);
+  });
   it.each([409, 500])('retains the same request and locks inputs after unknown status %s', async (status) => {
     streamChat.mockRejectedValue(Object.assign(new Error('Unknown execution'), { status, code: 'execution_unknown' }));
     await renderWithAuth(account('A'));

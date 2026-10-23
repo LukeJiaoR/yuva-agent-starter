@@ -450,3 +450,20 @@ describe('provider conversation order and atomic history budgets', () => {
     ]);
   });
 });
+
+
+it('rejects required facts over 6000 tokens before reserving or invoking a provider', async () => {
+  const f = fixture();
+  const app = createServer(f.options);
+  const route = app._router.stack.flatMap(layer => layer.handle?.stack || []).find(layer => layer.route?.path === '/api/chat/stream');
+  const req = Object.assign(new EventEmitter(), { user, body: {
+    ...request, parameters: { material: '事实'.repeat(7000) },
+  } });
+  await route.route.stack[0].handle(req, f.res, () => {});
+  expect(f.res.statusCode).toBe(422);
+  expect(f.res.body).toMatchObject({ code: 'context_budget_exceeded', financial_status: 'unreserved' });
+  expect(f.res.body.message).toContain('Shorten');
+  expect(f.order).not.toContain('reserve');
+  expect(f.order).not.toContain('provider');
+  expect(f.order).not.toContain('usage_start');
+});
