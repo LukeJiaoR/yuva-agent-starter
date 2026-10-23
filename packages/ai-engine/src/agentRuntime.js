@@ -42,7 +42,7 @@ export function classifyRuntimeError(error, abortReason, phase) {
     failureClass,
     code,
     error?.message || "An error occurred during agent execution",
-    { retryable, status: error?.status || 500 },
+    { retryable, status: error?.statusCode || error?.status || 500 },
   );
 }
 
@@ -362,9 +362,7 @@ export function createAgentRuntime(runtimeDefaults = {}) {
           try {
             await delivery?.abort?.({ error, providerResult });
           } catch (deliveryAbortError) {
-            logger.warn?.("[agent-runtime] delivery abort hook warning", {
-              error: deliveryAbortError?.message,
-            });
+            logger.warn?.("[agent-runtime] delivery abort hook warning");
           }
           throw error;
         }
@@ -434,7 +432,7 @@ export function createAgentRuntime(runtimeDefaults = {}) {
             signal,
           });
         } catch (error) {
-          logger.warn?.("[agent-runtime] post-settlement memory hook warning", { error: error?.message });
+          logger.warn?.("[agent-runtime] post-settlement memory hook warning");
         }
       }
 
@@ -449,7 +447,7 @@ export function createAgentRuntime(runtimeDefaults = {}) {
             context,
           });
         } catch (error) {
-          logger.warn?.("[agent-runtime] telemetry hook warning", { error: error?.message });
+          logger.warn?.("[agent-runtime] telemetry hook warning");
         }
       }
 
@@ -464,7 +462,7 @@ export function createAgentRuntime(runtimeDefaults = {}) {
             stopReason: "complete",
           });
         } catch (error) {
-          logger.warn?.("[agent-runtime] emitDone error", { error: error?.message });
+          logger.warn?.("[agent-runtime] emitDone error");
         }
       }
 
@@ -489,10 +487,10 @@ export function createAgentRuntime(runtimeDefaults = {}) {
           ? classifyError(error, abortReason, phase)
           : classifyRuntimeError(error, abortReason, phase);
 
-      logger.error?.(`[agent-runtime] execution failed in phase [${phase}]`, {
-        code: runError.code,
-        message: runError.message,
-      });
+      // Exceptions and codes may contain provider payloads or database details.
+      // Keep the default logger metadata-free; trusted error ports can inspect
+      // the original exception during classification without making it public.
+      logger.error?.(`[agent-runtime] execution failed in phase [${phase}]`);
 
       let terminalStatus = settled ? 'settled' : reservation ? 'reconciliation_required' : 'unreserved';
       // New adapters reconcile from persistent facts. Legacy ports retain their existing release hook.
@@ -501,7 +499,7 @@ export function createAgentRuntime(runtimeDefaults = {}) {
           const financial = await billingPort.onFailure({ request: canonicalRequest, user, db, reservation, providerResult, error, phase });
           terminalStatus = financial.status;
         } catch (reconciliationError) {
-          logger.error?.('[agent-runtime] state reconciliation unavailable', { code: reconciliationError.code });
+          logger.error?.('[agent-runtime] state reconciliation unavailable');
         }
       } else if (reservation && !settled && typeof billingPort.release === "function") {
         try {
@@ -515,7 +513,7 @@ export function createAgentRuntime(runtimeDefaults = {}) {
           });
           terminalStatus = released?.status || released?.request?.status || 'released';
         } catch (releaseErr) {
-          logger.error?.("[agent-runtime] release failed", { error: releaseErr?.message });
+          logger.error?.("[agent-runtime] release failed");
           if (typeof billingPort.markReconciliation === "function") {
             await billingPort.markReconciliation({ request: canonicalRequest, user, db, reservation }).catch(() => {});
           }
@@ -537,6 +535,7 @@ export function createAgentRuntime(runtimeDefaults = {}) {
         status: runError.statusCode || runError.status || 500,
         error: runError.message || runError,
         code: runError.code,
+        retryable: runError.retryable === true,
         body: !emitter ? {
           error: runError.message,
           code: runError.code,

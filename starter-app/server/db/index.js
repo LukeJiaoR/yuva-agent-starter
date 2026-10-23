@@ -26,8 +26,9 @@ export function createDatabasePool(config = {}) {
     connectionTimeoutMillis: 5000,
   });
 
-  pool.on('error', (err) => {
-    console.error('[Database Pool] Unexpected error on idle client:', err);
+  pool.on('error', () => {
+    // Driver errors may embed connection strings, SQL or private record data.
+    console.error('[Database Pool] Unexpected error on idle client.');
   });
 
   return pool;

@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createServer } from '../server/index.js';
 import { createChatUseCase } from '../server/application/chatUseCase.js';
 import { DomainKnowledgeAdapter } from '../server/domain/adapter.js';
@@ -27,7 +27,7 @@ function response(order) {
     end() { this.writableEnded = true; },
   });
 }
-function fixture(mode = 'success') {
+function fixture(mode = 'success', history = []) {
   const order = [], res = response(order);
   const product = createAiProduct({ env });
   const operation = { id: '33333333-3333-4333-8333-333333333333', accountId: user.id,
@@ -41,7 +41,7 @@ function fixture(mode = 'success') {
   const db = { async query(sql) {
     if (sql.includes('SELECT * FROM credit_usage_requests')) return { rows: [] };
     if (sql.includes('AS forbidden')) return { rows: [{ forbidden: false }] };
-    if (sql.includes('SELECT m.role')) return { rows: [] };
+    if (sql.includes('SELECT m.role')) return { rows: history.slice().reverse() };
     throw new Error('Unexpected SQL in transport-only fixture');
   } };
   const usageStore = { async start() { order.push('usage_start'); }, async observe() { order.push('usage_observe'); } };
@@ -321,7 +321,9 @@ const golden = {
     "events": [],
     "body": {
       "error": "invalid_request",
-      "message": "The request is invalid. Review the submitted fields and try again."
+      "code": "invalid_request",
+      "message": "The request is invalid. Review the submitted fields and try again.",
+      "retryable": false
     },
     "order": []
   },
@@ -413,5 +415,38 @@ describe('application chat without HTTP', () => {
     const execute = createChatUseCase({ ...f.options, product: f.options.aiProduct, deliveryPort: {} });
     expect(() => execute({ request: { ...request, question: '' }, user })).toThrow('Question must contain');
     expect(f.order).toEqual([]);
+  });
+});
+
+
+describe('provider conversation order and atomic history budgets', () => {
+  async function promptFor(history) {
+    const f = fixture('success', history);
+    f.options.callAIStream = vi.fn(f.options.callAIStream);
+    const execute = createChatUseCase({ ...f.options, product: f.options.aiProduct, env,
+      adapter: new DomainKnowledgeAdapter('vertical-agent-saas'), deliveryPort: {} });
+    const result = await execute({ request, user });
+    expect(result.terminalStatus).toBe('settled');
+    return f.options.callAIStream.mock.calls[0][0].messages;
+  }
+  it.each([0, 1, 3])('renders %i complete history turns before the current required question', async (turns) => {
+    const history = Array.from({ length: turns }, (_, i) => [
+      { role: 'user', content: `old question ${i}`, turn_sequence: String(i + 1) },
+      { role: 'assistant', content: `old answer ${i}`, turn_sequence: String(i + 1) },
+    ]).flat();
+    expect(await promptFor(history)).toEqual([...history.map(({ role, content }) => ({ role, content })),
+      { role: 'user', content: request.question }]);
+  });
+  it('prunes a turn as a unit while keeping retained order and the current question last', async () => {
+    const history = [
+      { role: 'user', content: 'too large ' + 'word '.repeat(6000), turn_sequence: '1' },
+      { role: 'assistant', content: 'do not keep an orphan answer', turn_sequence: '1' },
+      { role: 'user', content: 'small older question', turn_sequence: '2' },
+      { role: 'assistant', content: 'small older answer', turn_sequence: '2' },
+    ];
+    expect(await promptFor(history)).toEqual([
+      { role: 'user', content: 'small older question' }, { role: 'assistant', content: 'small older answer' },
+      { role: 'user', content: request.question },
+    ]);
   });
 });

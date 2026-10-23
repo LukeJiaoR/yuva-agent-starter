@@ -1,3 +1,5 @@
+import { createHash, randomUUID } from "node:crypto";
+
 const CREDIT_TYPES = new Set(["membership", "purchased"]);
 const CREDIT_PAYMENT_TYPES = new Set(["credits", "subscription"]);
 const ACTIVE_USAGE_STATUSES = new Set(["reserved", "generating"]);
@@ -1100,6 +1102,14 @@ export async function revokeCreditGrant({
               WHERE grant_id = $1
            ), 0)::int AS settled_credits,
            COALESCE((
+             SELECT SUM(available_delta)
+               FROM credit_transactions
+              WHERE grant_id = $1
+                AND transaction_type = 'usage_refund'
+                AND status = 'posted'
+                AND available_delta > 0
+           ), 0)::int AS restored_usage_credits,
+           COALESCE((
              SELECT SUM(-available_delta)
                FROM credit_transactions
               WHERE grant_id = $1
@@ -1114,7 +1124,11 @@ export async function revokeCreditGrant({
         remaining: integer(grant.remaining_credits),
         consumed: Math.max(
           0,
+          // Historical allocations are immutable charge facts. Only refunds
+          // actually restored to this grant reduce its net consumption; an
+          // expired refund changes request status but restores no credits.
           integer(usage?.settled_credits)
+            - integer(usage?.restored_usage_credits)
             + integer(usage?.refund_offset_credits)
             + integer(grant.metadata?.debt_repaid),
         ),
@@ -1343,6 +1357,49 @@ function grantLockQuery({ userIdParam = "$1", creditTypeParam = null } = {}) {
         FOR UPDATE`;
 }
 
+// Hash the effective, persisted JSON input. Object key order is irrelevant;
+// arrays retain order. Snapshot before awaiting the account lock so callers
+// cannot alter metadata while a deduction is queued.
+function creditMutationInput(value) {
+  const snapshot = JSON.parse(JSON.stringify(value));
+  const canonical = (item) => {
+    if (Array.isArray(item)) return `[${item.map(canonical).join(",")}]`;
+    if (item && typeof item === "object") {
+      return `{${Object.keys(item).sort().map((key) => `${JSON.stringify(key)}:${canonical(item[key])}`).join(",")}}`;
+    }
+    return JSON.stringify(item);
+  };
+  return { snapshot, hash: createHash("sha256").update(canonical(snapshot)).digest("hex") };
+}
+
+// A supplied client belongs to the caller's transaction. A savepoint both
+// verifies that transaction exists and undoes partial deductions if the caller
+// catches an application-level failure and chooses to commit unrelated work.
+async function withCreditDeductionSavepoint(client, callback) {
+  try {
+    await client.query("SAVEPOINT credit_deduction");
+  } catch (error) {
+    if (error.code === "25P01") throw coreError("credit_deduction_transaction_required", 500);
+    throw error;
+  }
+  try {
+    const result = await callback();
+    await client.query("RELEASE SAVEPOINT credit_deduction");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK TO SAVEPOINT credit_deduction").catch(() => {});
+    await client.query("RELEASE SAVEPOINT credit_deduction").catch(() => {});
+    throw error;
+  }
+}
+
+/**
+ * Requires the credit_mutations migration. Pass a pool, or a client already in
+ * a transaction. Calls sharing a caller-owned transaction client must be awaited
+ * sequentially; concurrent callers must use separate pool connections.
+ * Same account/action/key + effective input returns the original
+ * result, including its historical balance, even after later account activity.
+ */
 export async function deductAvailableCredits({
   db,
   userId,
@@ -1359,9 +1416,40 @@ export async function deductAvailableCredits({
   const normalizedIdempotencyKey = requireId(idempotencyKey, "credit_deduction_idempotency_required");
   const normalizedReason = requireId(reason, "credit_deduction_reason_required");
   if (creditType !== null) assertCreditType(creditType);
+  if (String(idempotencyKey).trim().length > 255) {
+    throw coreError("credit_deduction_idempotency_invalid", 400);
+  }
+  const { snapshot: input, hash: inputHash } = creditMutationInput({
+    version: 1, credits: amount, creditType, reason: normalizedReason,
+    referenceId, sourceId: sourceId || referenceId, metadata: metadata || {},
+  });
 
-  return withCreditTransaction(db, async (client) => {
+  return withCreditTransaction(db, (client) => withCreditDeductionSavepoint(client, async () => {
     const accountBefore = await lockCreditAccount(client, normalizedUserId);
+    const { rows: [existing] } = await client.query(
+      `SELECT input_hash, result FROM credit_mutations
+        WHERE user_id = $1 AND action = 'deduct_available' AND idempotency_key = $2`,
+      [normalizedUserId, normalizedIdempotencyKey],
+    );
+    if (existing) {
+      if (existing.input_hash !== inputHash) throw coreError("credit_deduction_idempotency_conflict", 409);
+      return existing.result;
+    }
+    // Pre-migration deductions have no input hash or recoverable result. Never
+    // infer a replay from today's balance or silently charge a legacy key again.
+    // Match the exact historical key layout, not a LIKE pattern supplied by a caller.
+    const { rows: [legacy] } = await client.query(
+      `SELECT id FROM credit_transactions
+        WHERE user_id = $1 AND transaction_type = 'admin_adjustment'
+          AND direction = 'debit'
+          AND left(idempotency_key, length($2::text) + 1) = $2 || ':'
+          AND substring(idempotency_key FROM length($2::text) + 2)
+              ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}:[0-9]+$'
+        LIMIT 1`,
+      [normalizedUserId, normalizedIdempotencyKey],
+    );
+    if (legacy) throw coreError("credit_deduction_legacy_reconciliation_required", 409);
+    const mutationId = randomUUID();
     const params = creditType === null ? [normalizedUserId] : [normalizedUserId, creditType];
     const { rows: grants } = await client.query(
       grantLockQuery({ creditTypeParam: creditType === null ? null : "$2" }),
@@ -1410,23 +1498,32 @@ export async function deductAvailableCredits({
         direction: "debit",
         availableDelta: -deduction.amount,
         account: { ...account, available_credits: availableSnapshot },
-        idempotencyKey: `${normalizedIdempotencyKey}:${deduction.grant.id}:${index}`,
-        reason: normalizedReason,
-        referenceId,
+        idempotencyKey: `credit-deduction:${mutationId}:entry:${index}`,
+        reason: input.reason,
+        referenceId: input.referenceId,
         sourceType: "admin_adjustment",
-        sourceId: sourceId || referenceId,
-        metadata,
+        sourceId: input.sourceId,
+        metadata: input.metadata,
       });
-      if (transactionId) transactionIds.push(transactionId);
+      if (!transactionId) throw coreError("credit_reconciliation_required", 409);
+      transactionIds.push(transactionId);
     }
-    return {
+    const result = {
       deductedCredits: amount,
       debtCreated: 0,
       grantIds: deductions.map(({ grant }) => grant.id),
       transactionIds,
       balance: await readCreditBalance({ db: client, userId: normalizedUserId }),
     };
-  });
+    // The account lock serializes this scope, including callers that supply an
+    // existing transaction. The identity and result commit with every debit.
+    await client.query(
+      `INSERT INTO credit_mutations (id, user_id, action, idempotency_key, input_hash, result)
+       VALUES ($1, $2, 'deduct_available', $3, $4, $5::jsonb)`,
+      [mutationId, normalizedUserId, normalizedIdempotencyKey, inputHash, JSON.stringify(result)],
+    );
+    return result;
+  }));
 }
 
 async function loadUsageRequestForAdmin(client, usageRequestId, lock = false) {

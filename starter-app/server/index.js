@@ -19,7 +19,7 @@ import { createHealthRoutes } from './routes/health.routes.js';
 import { createAnalyzeRoutes } from './routes/analyze.routes.js';
 import { createChatStreamRoutes } from './routes/chatStream.routes.js';
 import { createOptionalAuth, hardenJsonResponse } from '@yuva/auth-core';
-import { sendPublicError } from './http/errors.js';
+import { sendPublicError, toPublicError } from './http/errors.js';
 import { authMode } from './auth/config.js';
 import { createSelfHostedAuth } from './auth/selfHosted.js';
 
@@ -128,7 +128,7 @@ export function createServer({
 
   // Global error handler (Fail-Closed)
   app.use((err, req, res, next) => {
-    console.error('[Server Error]', { code: err?.code || 'internal_error' });
+    console.error('[Server Error]', { code: toPublicError(err).code });
     if (!res.headersSent) {
       sendPublicError(res, err);
     }

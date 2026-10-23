@@ -38,7 +38,8 @@ describe('conversation history read failure is not empty history', () => {
     await fixture.send();
     expect(fixture.response.status).toHaveBeenCalledWith(503);
     expect(fixture.response.json).toHaveBeenCalledWith(expect.objectContaining({
-      code: 'conversation_history_unavailable', error: 'Conversation history is temporarily unavailable. Please try again.',
+      code: 'conversation_history_unavailable', error: 'conversation_history_unavailable',
+      message: 'Conversation history is temporarily unavailable. Please try again.', retryable: true, financial_status: 'unreserved',
     }));
     expect(fixture.operationStore.reserve).not.toHaveBeenCalled();
     expect(fixture.callAIStream).not.toHaveBeenCalled();
@@ -69,8 +70,9 @@ describe('conversation history read failure is not empty history', () => {
       expect(fixture.operationStore.reserve).toHaveBeenCalledTimes(1);
       expect(fixture.callAIStream).not.toHaveBeenCalled();
       expect(fixture.adapter.buildContext).toHaveBeenCalledWith({}, history.slice().reverse(), 'Hello');
-      const [sql, params] = fixture.db.query.mock.calls.find(([sql]) => sql.includes('FROM messages'));
-      expect(sql).toContain('c.user_id = $2'); expect(sql).toContain('LIMIT 20');
+      const [sql, params] = fixture.db.query.mock.calls.find(([sql]) => sql.includes('SELECT m.role'));
+      expect(sql).toContain('c.user_id = $2'); expect(sql).toContain('message_count<=20');
+      expect(sql).toContain('m.turn_sequence DESC, m.role_order DESC');
       expect(params).toEqual([conversationId, user.id]);
     },
   );
