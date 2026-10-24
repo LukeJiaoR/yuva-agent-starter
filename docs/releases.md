@@ -29,6 +29,16 @@ immutable. Historical release notes describe those original releases, not the
 current starter's support policy. The example retains its original core-v1.2.0
 vendor bundle while requiring Node 24 at the application boundary.
 
+## Core 3.0.0 administrative deduction schema contract
+
+[Core 3.0.0](releases/3.0.0.md) coordinates the audit #89 fixes merged in #90.
+The existing `deductAvailableCredits` API now requires `credit_mutations` and
+uses persistent mutation identities. This is an incompatible schema requirement,
+so the release increments the coordinated major version. Consumers must apply
+reviewed product-owned migrations and validate their real deduction path before
+switching all writers together. A package rollback alone is not a safe rollback
+of this protocol. Publication and deployment remain separately verified steps.
+
 ## Core 2.0.0 runtime and authentication boundaries
 
 [Core 2.0.0](releases/2.0.0.md) requires Node 24 and makes Clerk an optional peer
